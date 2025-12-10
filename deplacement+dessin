@@ -63,23 +63,25 @@ float n_parcours(point P)
 int tick_par_tour = 40;
 
 // vitesse moteur désirée
-int vitesse_moteur = 100;
+int vitesse_moteur = 200;
 
 // pins moteur gauche
 int MOTEUR_G_IN = 11;
-int MOTEUR_G_ENA = 5;
-int ENCODEUR_G_A = 14;
-int ENCODEUR_G_B = 18;
-float compteur_G = 0;
+int MOTEUR_G_ENA = 10;
+int ENCODEUR_G_A = 4;
+int ENCODEUR_G_B = 5;
+//comptage encodeur gauche
+volatile float compteur_G = 0;
+
 int G_A_etat_precedent = LOW;
 
 // pins moteur droite
 int MOTEUR_D_IN = 8;
-int MOTEUR_D_ENA = 6;
-int ENCODEUR_D_A = 15;
-int ENCODEUR_D_B = 19;
-float compteur_D = 0;
-int D_A_etat_precedent = LOW;
+int MOTEUR_D_ENA = 9;
+int ENCODEUR_D_A = 6;
+int ENCODEUR_D_B = 7;
+// comptage encodeur droite
+volatile float compteur_D = 0;
 
 // pin servo moteur 
 const int PIN_SERVO = 3;
@@ -97,72 +99,7 @@ const int PWM1 = 10;
 const int DIR2 = 8;
 const int PWM2 = 9;
 const int vitesse = 120; // pour fonctions avancer/reculer
-void setup() 
-{
-    Serial.begin(9600);
 
-    pinMode(MOTEUR_G_IN, OUTPUT);
-    pinMode(MOTEUR_G_ENA, OUTPUT);
-    pinMode(MOTEUR_D_IN, OUTPUT);
-    pinMode(MOTEUR_D_ENA, OUTPUT);
-   
-    pinMode(ENCODEUR_G_A, INPUT_PULLUP);
-    pinMode(ENCODEUR_G_B, INPUT_PULLUP);
-    pinMode(ENCODEUR_D_A, INPUT_PULLUP);
-    pinMode(ENCODEUR_D_B, INPUT_PULLUP);
-    
-    // attachInterrupt(digitalPinToInterrupt(ENCODEUR_G_A), lireEncodeurGauche, CHANGE);
-    // attachInterrupt(digitalPinToInterrupt(ENCODEUR_D_A), lireEncodeurDroite, CHANGE);
-    
-    arreterMoteurs();
-  stylo.attach(PIN_SERVO);
-  stylo.write(60); // stylo levé
-  delay(500);
-}
-
-
-
-void loop() 
-{
-    // Exemple de séquence de déplacement : Aller à la Case5, puis s'arrêter.
-    
-    // On ne veut exécuter cette séquence qu'une seule fois.
-    static bool a_deja_bouge = false; 
-
-    if (!a_deja_bouge) {
-        
-        point CaseCible = Case5; // Définir la case cible
-        
-        
-        // 1. Calculer et effectuer la rotation
-        float tours_rotation = n_rotation(CaseCible);
-
-        // Rotation : (G: tours_rotation, D: -tours_rotation) -> on passe tours_rotation à la fonction
-        tournerRobot(tours_rotation);
-        
-
-        // 2. Calculer et effectuer l'avancement
-        float tours_parcours = n_parcours(CaseCible);
-
-        // Avancer : (G: tours_parcours, D: tours_parcours)
-        deplacerRobotAvant(tours_parcours);
-
-
-        // 3. Mettre à jour la position du robot (P_0)
-        P_0 = CaseCible; 
-
-        // 4. Baisser le stylo 
-        stylo.write(78);  // stylo bas
-        delay(300);
-
-        //5. Dessiner un cercle sur place 
-        dessinerCercle();
-        
-        a_deja_bouge = true; // Le déplacement est terminé.
-    }
-        // Le robot reste immobile après le traçage
-        while(true); 
-    }
     
  // ------ DESSINER UN CERCLE ------
 void dessinerCercle() {
@@ -232,19 +169,14 @@ void arret(){
 
 void lireEncodeurGauche()
 {
-    // L'encodeur A est lu en continu (polling) pour détecter les fronts montants ou descendants.
     int G_A_etat_courant = digitalRead(ENCODEUR_G_A);
 
-    // Ne réagit que si l'état a changé (détection d'une impulsion)
     if (G_A_etat_courant != G_A_etat_precedent) 
     {
-        // Détection de la direction
-        if (digitalRead(ENCODEUR_G_B) == G_A_etat_courant) {
-             // Exemple : si A est LOW et B est LOW (ou A est HIGH et B est HIGH)
-            compteur_G--; // Rotation arrière
+        if (digitalRead(ENCODEUR_G_B) == G_A_etat_courant) {  
+            compteur_G--; 
         } else {
-            // Exemple : si A est LOW et B est HIGH (ou A est HIGH et B est LOW)
-            compteur_G++; // Rotation avant
+            compteur_G++; 
         }
     }
     G_A_etat_precedent = G_A_etat_courant;
@@ -252,21 +184,19 @@ void lireEncodeurGauche()
 
 void lireEncodeurDroite()
 {
-    // L'encodeur A est lu en continu (polling) pour détecter les fronts montants ou descendants.
     int D_A_etat_courant = digitalRead(ENCODEUR_D_A);
 
-    // Ne réagit que si l'état a changé (détection d'une impulsion)
     if (D_A_etat_courant != D_A_etat_precedent) 
     {
-        // Détection de la direction
+        
         if (digitalRead(ENCODEUR_D_B) == D_A_etat_courant) {
-            compteur_D--; // Rotation arrière
+            compteur_D--; 
         } else {
-            compteur_D++; // Rotation avant
+            compteur_D++; 
         }
     }
 
-    // Mettre à jour l'état précédent pour la prochaine détection
+    
     D_A_etat_precedent = D_A_etat_courant;
 }
 
@@ -306,7 +236,6 @@ void arreterMoteurs()
 
 void deplacerRobotAvant(float toursCibles) 
 {
-    
     float target_pulses = toursCibles * tick_par_tour;
     
     compteur_G = 0;
@@ -314,33 +243,9 @@ void deplacerRobotAvant(float toursCibles)
 
     demarrerMoteurGauche(vitesse_moteur);
     demarrerMoteurDroit(vitesse_moteur);
-    
 
     while (compteur_G < target_pulses || compteur_D < target_pulses) {
         
-        lireEncodeurGauche(); 
-        lireEncodeurDroite();
-
-        // Correction de l'écart
-        float ecart = compteur_G - compteur_D; 
-        
-        
-        if (ecart > 10) { 
-            analogWrite(MOTEUR_G_ENA, vitesse_moteur - 20);
-        } 
-
-        else if (ecart < -10) {
-            analogWrite(MOTEUR_D_ENA, vitesse_moteur - 20); 
-        } 
-
-        else {
-            analogWrite(MOTEUR_G_ENA, vitesse_moteur);
-            analogWrite(MOTEUR_D_ENA, vitesse_moteur);
-        }
- 
-        if (compteur_G >= target_pulses && compteur_D >= target_pulses) {
-            break; 
-        }
         
         delay(10); 
     }
@@ -355,55 +260,99 @@ void tournerRobot(float toursCibles) {
     toursCibles négatif : roue gauche recule (-), roue droite avance (+) -> Rotation horaire (à droite)
     */
     
-    // Convertir les tours cibles en impulsions d'encodeur
-    float target_pulses = fabs(toursCibles) * tick_par_tour; // Utilisez la valeur absolue
+    float target_pulses = fabs(toursCibles) * tick_par_tour;
 
     compteur_G = 0;
     compteur_D = 0; 
     
-    // Déterminer la direction de chaque moteur
+    
     if (toursCibles >= 0) {
-        // Rotation anti-horaire (vers la gauche)
-        demarrerMoteurGauche(vitesse_moteur); // G: Avance
-        reculerMoteurDroit(vitesse_moteur);   // D: Recule
+        
+        demarrerMoteurGauche(vitesse_moteur); 
+        reculerMoteurDroit(vitesse_moteur);   
     } else {
-        // Rotation horaire (vers la droite)
-        reculerMoteurGauche(vitesse_moteur);  // G: Recule
-        demarrerMoteurDroit(vitesse_moteur);   // D: Avance
+        
+        reculerMoteurGauche(vitesse_moteur);
+        demarrerMoteurDroit(vitesse_moteur);
     }
 
-    // Le robot tourne tant que l'une des roues n'a pas atteint sa cible
-    // ATTENTION : Pour une rotation, on compare les valeurs absolues des compteurs
+    
     while (fabs(compteur_G) < target_pulses || fabs(compteur_D) < target_pulses) {
-        
-        lireEncodeurGauche(); 
-        lireEncodeurDroite();
 
-        // Correction de l'écart (optionnel, mais recommandé pour un pivot précis)
-        // L'écart doit être mesuré sur les valeurs absolues des compteurs.
-        float ecart = fabs(compteur_G) - fabs(compteur_D); 
-        
-        // Ajustement de la vitesse pour synchroniser les deux roues
-        if (ecart > 10) { 
-            // La roue G est en avance (en magnitude)
-            analogWrite(MOTEUR_G_ENA, vitesse_moteur - 20);
-        } 
-        else if (ecart < -10) {
-            // La roue D est en avance (en magnitude)
-            analogWrite(MOTEUR_D_ENA, vitesse_moteur - 20); 
-        } 
-        else {
-            analogWrite(MOTEUR_G_ENA, vitesse_moteur);
-            analogWrite(MOTEUR_D_ENA, vitesse_moteur);
-        }
  
         // Si les deux compteurs ont atteint ou dépassé la cible (en valeur absolue)
         if (fabs(compteur_G) >= target_pulses && fabs(compteur_D) >= target_pulses) {
             break; 
         }
         
-        delay(10); // Petite pause pour ne pas saturer le microcontrôleur
+        delay(10);
     }
     
     arreterMoteurs();
 }
+
+void setup() 
+{
+    Serial.begin(9600);
+
+    pinMode(MOTEUR_G_IN, OUTPUT);
+    pinMode(MOTEUR_G_ENA, OUTPUT);
+    pinMode(MOTEUR_D_IN, OUTPUT);
+    pinMode(MOTEUR_D_ENA, OUTPUT);
+   
+    pinMode(ENCODEUR_G_A, INPUT_PULLUP);
+    pinMode(ENCODEUR_G_B, INPUT_PULLUP);
+    pinMode(ENCODEUR_D_A, INPUT_PULLUP);
+    pinMode(ENCODEUR_D_B, INPUT_PULLUP);
+    
+    attachInterrupt(digitalPinToInterrupt(ENCODEUR_G_A), lireEncodeurGauche, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(ENCODEUR_D_A), lireEncodeurDroite, CHANGE);
+    
+    arreterMoteurs();
+  stylo.attach(PIN_SERVO);
+  stylo.write(60); // stylo levé
+  delay(500);
+}
+
+
+
+void loop() 
+{
+    // Exemple de séquence de déplacement : Aller à la Case5, puis s'arrêter.
+
+    static bool a_deja_bouge = false; 
+
+    if (!a_deja_bouge) {
+        
+        point CaseCible = Case5; // Définir la case cible
+        
+        
+        // 1. Calculer et effectuer la rotation
+        float tours_rotation = n_rotation(CaseCible);
+
+        // Rotation : (G: tours_rotation, D: -tours_rotation) -> on passe tours_rotation à la fonction
+        tournerRobot(tours_rotation);
+        
+
+        // 2. Calculer et effectuer l'avancement
+        float tours_parcours = n_parcours(CaseCible);
+
+        // Avancer : (G: tours_parcours, D: tours_parcours)
+        deplacerRobotAvant(tours_parcours);
+
+
+        // 3. Mettre à jour la position du robot (P_0) , désactivé pour l'instant
+        // P_0 = CaseCible; 
+
+        // 4. Baisser le stylo 
+        stylo.write(78);  // stylo bas
+        delay(300);
+
+        //5. Dessiner un cercle sur place 
+        dessinerCercle();
+        
+        a_deja_bouge = true;
+    }
+        // Le robot reste immobile après le traçage
+        while(true); 
+    }
