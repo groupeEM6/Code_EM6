@@ -202,27 +202,27 @@ void lireEncodeurDroite()
 
 void demarrerMoteurGauche(int vitesse) 
 {
-    digitalWrite(MOTEUR_G_IN, HIGH);
+    digitalWrite(MOTEUR_G_IN, LOW);
     analogWrite(MOTEUR_G_ENA, vitesse);
 }
 
 void demarrerMoteurDroit(int vitesse) 
 {
-    digitalWrite(MOTEUR_D_IN, HIGH);
+    digitalWrite(MOTEUR_D_IN, LOW);
     analogWrite(MOTEUR_D_ENA, vitesse);
 }
 
 void reculerMoteurGauche(int vitesse) 
 {
     // Inverse la direction par rapport à demarrerMoteurGauche
-    digitalWrite(MOTEUR_G_IN, LOW);
+    digitalWrite(MOTEUR_G_IN, HIGH);
     analogWrite(MOTEUR_G_ENA, vitesse);
 }
 
 void reculerMoteurDroit(int vitesse) 
 {
     // Inverse la direction par rapport à demarrerMoteurDroit
-    digitalWrite(MOTEUR_D_IN, LOW);
+    digitalWrite(MOTEUR_D_IN, HIGH);
     analogWrite(MOTEUR_D_ENA, vitesse);
 }
 
@@ -268,12 +268,12 @@ void tournerRobot(float toursCibles) {
     
     if (toursCibles >= 0) {
         
-        demarrerMoteurGauche(vitesse_moteur); 
-        reculerMoteurDroit(vitesse_moteur);   
+        reculerMoteurGauche(vitesse_moteur); 
+        demarrerMoteurDroit(vitesse_moteur);   
     } else {
         
-        reculerMoteurGauche(vitesse_moteur);
-        demarrerMoteurDroit(vitesse_moteur);
+        demarrerMoteurGauche(vitesse_moteur);
+        reculerMoteurDroit(vitesse_moteur);
     }
 
     
