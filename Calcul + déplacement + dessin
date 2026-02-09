@@ -1,5 +1,5 @@
-# Code_arduino
-Code déplacement robot et traçage de symboles 
+// Code_arduino
+// Code déplacement robot et traçage de symboles 
 #include <Arduino.h>
 #include <math.h>
 #include <Servo.h> 
@@ -83,6 +83,7 @@ int ENCODEUR_D_B = 7;
 // comptage encodeur droite
 volatile float compteur_D = 0;
 
+int D_A_etat_precedent = LOW;
 // pin servo moteur 
 const int PIN_SERVO = 3;
 Servo stylo; 
@@ -107,35 +108,35 @@ int board[9] = {0};
 point coup_vers_case(int coup) {
 
 point Case = {0,0};
-
-  case = 1:
+switch(coup) {
+  case 1:
     Case = Case1;
-    break
-  case = 2:
+    break;
+  case 2:
     Case = Case2;
-    break
-  case = 3:
+    break;
+  case 3:
     Case = Case3;
-    break
-  case = 4:
+    break;
+  case 4:
     Case = Case4;
-    break
-  case = 5:
+    break;
+  case 5:
     Case = Case5;
-    break
-  case = 6:
+    break;
+  case 6:
     Case = Case6;
-    break
-  case = 7:
+    break;
+  case 7:
     Case = Case7;
-    break
-  case = 8:
+    break;
+  case 8:
     Case = Case8;
-    break
-  case = 9:
+    break;
+  case 9:
     Case = Case9;
-    break
-
+    break;
+}
   return Case;
 }
 
@@ -224,7 +225,7 @@ stylo.write(60); // stylo levé
 //---DESSINER UNE CROIX
 void dessinerCroix() {
 float Ldiag = 20.0 * 1.41421356237; // ≈ 28.284 cm
-float moitiéLdiag = Ldiag / 2.0;
+float moitieLdiag = Ldiag / 2.0;
 
   // --- Tracer la première diagonale (coin A → coin C) ---
   // Place le robot AU COIN A, orienté vers coin C
@@ -233,14 +234,14 @@ float moitiéLdiag = Ldiag / 2.0;
   styloEcrit(false);
   
   // Revenir jusqu'à la moitié de la 1ere diagonale 
-  reculer(moitiéLdiag);
+  reculer(moitieLdiag);
 
   // Tracer la 2e digonale depuis le centre
   tournerRobot( (3.14159/2) * (axe/2) / d_roue );  // rotation de 90°
   styloEcrit(true);
-  avancer(moitiéLdiag);
+  avancer(moitieLdiag);
   styloEcrit(false);
-  reculer(moitiéLdiag);
+  reculer(moitieLdiag);
   styloEcrit(false);
 }
 // Baisser et remonter le stylo
