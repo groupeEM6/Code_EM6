@@ -1,0 +1,508 @@
+
+// Code déplacement robot et traçage de symboles 
+#include <Arduino.h>
+#include <math.h>
+#include <Servo.h> 
+struct point
+{
+    int x;
+    int y;
+};
+
+// Coordonnées des cases
+
+point Case1 = {15, 75};
+point Case2 = {45, 75};
+point Case3 = {75, 75};
+point Case4 = {15, 45};
+point Case5 = {45, 45};
+point Case6 = {75, 45};
+point Case7 = {15, 15};
+point Case8 = {45, 15};
+point Case9 = {75, 15};
+
+// Infos proto : diamètre des roues , longueur axe entre roues
+
+float d_roue = 6.5;
+
+float axe = 16.5;
+
+// Coordonnées initiales du proto
+
+point P_0 = {-30,45};
+
+
+float n_rotation(point P) 
+{
+    /* calcule nbre de tours à parcourir par roue pour alignement avec trajectoire
+    (n tours pour roue de gauche, -n tours pour roue de droite) */
+
+    float theta = atan2((P.y - P_0.y),(P.x - P_0.x));
+    
+    float arc_cercle = (axe/2)*theta;
+
+    float n_tours = arc_cercle/(3.14*d_roue);
+
+    return n_tours;
+}
+
+float n_parcours(point P)
+{
+    /*Calcule le nbre de tours à parcourir par la roue pour arriver à la case
+    une fois la trajectoire alignée*/
+
+    float distance = pow(pow(P.x-P_0.x, 2) + pow(P.y-P_0.y, 2), 0.5);
+    
+    float n_tours = distance/(3.14*d_roue);
+
+    return n_tours;
+};
+
+
+// ratio ticks/tour
+int tick_par_tour = 40;
+
+// vitesse moteur désirée
+int vitesse_moteur = 200;
+
+// pins moteur gauche
+int MOTEUR_G_IN = 11;
+int MOTEUR_G_ENA = 10;
+int ENCODEUR_G_A = 4;
+int ENCODEUR_G_B = 5;
+//comptage encodeur gauche
+volatile float compteur_G = 0;
+
+int G_A_etat_precedent = LOW;
+
+// pins moteur droite
+int MOTEUR_D_IN = 8;
+int MOTEUR_D_ENA = 9;
+int ENCODEUR_D_A = 6;
+int ENCODEUR_D_B = 7;
+// comptage encodeur droite
+volatile float compteur_D = 0;
+
+int D_A_etat_precedent = LOW;
+// pin servo moteur 
+const int PIN_SERVO = 3;
+Servo stylo; 
+
+// Temps pour faire un cercle complet (à calibrer)
+int temps_cercle = 4500;  // ms = 3 secondes environ
+// dessin pour la croix
+float temps_par_cm = 100.0;   // ms par cm (à calibrer)
+float temps_par_deg = 10.0;   // ms par degré (à calibrer)
+
+// PWM/DIR pour fonctions avancer/reculer 
+const int DIR1 = 11;
+const int PWM1 = 10;
+const int DIR2 = 8;
+const int PWM2 = 9;
+const int vitesse = 120; // pour fonctions avancer/reculer
+
+// Plateau : 0 = vide, 1 = Adversaire, -1 = Home (robot)
+int board[9] = {0};
+
+// ------ TRADUCTION COUP VERS CASE ------
+point coup_vers_case(int coup) {
+
+point Case = {0,0};
+switch(coup) {
+  case 1:
+    Case = Case1;
+    break;
+  case 2:
+    Case = Case2;
+    break;
+  case 3:
+    Case = Case3;
+    break;
+  case 4:
+    Case = Case4;
+    break;
+  case 5:
+    Case = Case5;
+    break;
+  case 6:
+    Case = Case6;
+    break;
+  case 7:
+    Case = Case7;
+    break;
+  case 8:
+    Case = Case8;
+    break;
+  case 9:
+    Case = Case9;
+    break;
+}
+  return Case;
+}
+
+// ------ VERIFICATION SI PLATEAU PLEIN ------
+bool plein(int b[9]) {
+    for (int i = 0; i < 9; i++)
+        if (b[i] == 0) return false;
+    return true;
+}
+
+ // ------ DETECTION DE GAGNANT ------
+int gagnant(int b[9]) {
+    const int L[8][3] = {
+        {0,1,2},{3,4,5},{6,7,8},
+        {0,3,6},{1,4,7},{2,5,8},
+        {0,4,8},{2,4,6}
+    };
+    for (int i = 0; i < 8; i++) {
+        int a = L[i][0], c = L[i][1], d = L[i][2];
+        if (b[a] != 0 && b[a] == b[c] && b[c] == b[d])
+            return b[a];
+    }
+    return 0;
+}
+
+ // ------ MINIMAX ------
+int minimax(int b[9], int joueur) {
+    int win = gagnant(b);
+    if (win == -1) return 1;     // Home gagne
+    if (win == 1) return -1;     // Adversaire gagne
+    if (plein(b)) return 0;      // Match nul
+
+    int meilleur = (joueur == -1 ? -1000 : 1000);
+
+    for (int i = 0; i < 9; i++) {
+        if (b[i] == 0) {
+            b[i] = joueur;
+            int score = minimax(b, -joueur);
+            b[i] = 0;
+
+            if (joueur == -1)
+                meilleur = max(meilleur, score);
+            else
+                meilleur = min(meilleur, score);
+        }
+    }
+    return meilleur;
+}
+
+ // ------ CALCUL DU MEILLEUR COUP ------
+int meilleurCoup(int b[9]) {
+    int meilleurScore = -1000;
+    int coup = -1;
+
+    for (int i = 0; i < 9; i++) {
+        if (b[i] == 0) {
+            b[i] = -1;  // Home joue
+            int score = minimax(b, 1); // Adversaire joue ensuite
+            b[i] = 0;
+
+            if (score > meilleurScore) {
+                meilleurScore = score;
+                coup = i;
+            }
+        }
+    }
+    return coup;
+}
+
+ // ------ DESSINER UN CERCLE ------
+void dessinerCercleBIS() {
+    // --- 1. PLACEMENT : Avancer de axe/2 ---
+    // Calcul du nombre de tours de roue pour avancer de la moitié de l'axe
+    float tours_avance = (axe / 2.0) / (3.14159 * d_roue);
+    deplacerRobotAvant(tours_avance);
+
+    // --- 2. PLACEMENT : Tourner de 90° à droite ---
+    float tours_quart_tour = axe / (4.0 * d_roue);
+    tournerRobot(-tours_quart_tour);
+
+    // --- 3. DESSIN : Baisser le stylo ---
+    stylo.write(78); 
+    delay(300);
+
+    // --- 4. DESSIN : Pivoter à 360° autour de la roue droite ---
+
+    float tours_cercle = (2.0 * axe) / d_roue;
+    float target_pulses = tours_cercle * tick_par_tour;
+    
+    compteur_G = 0;
+    demarrerMoteurGauche(vitesse_moteur);
+    
+    while (fabs(compteur_G) < target_pulses) {
+        delay(10);
+    }
+    arreterMoteurs();
+
+    // --- 5. FIN DU DESSIN : Lever le stylo ---
+    stylo.write(60);
+    delay(300);
+
+    // --- 6. RETOUR : Tourner de 90° à gauche ---
+    tournerRobot(tours_quart_tour); // Positif = rotation à gauche (anti-horaire)
+
+    // --- 7. RETOUR : Reculer de axe/2 ---
+    deplacerRobotArriere(tours_avance); 
+}
+
+//---DESSINER UNE CROIX
+void dessinerCroix() {
+float Ldiag = 20.0 * 1.41421356237; // ≈ 28.284 cm
+float moitieLdiag = Ldiag / 2.0;
+
+  // --- Tracer la première diagonale (coin A → coin C) ---
+  // Place le robot AU COIN A, orienté vers coin C
+  styloEcrit(true);
+  avancer(Ldiag);
+  styloEcrit(false);
+  
+  // Revenir jusqu'à la moitié de la 1ere diagonale 
+  reculer(moitieLdiag);
+
+  // Tracer la 2e digonale depuis le centre
+  tournerRobot( (3.14159/2) * (axe/2) / d_roue );  // rotation de 90°
+  styloEcrit(true);
+  avancer(moitieLdiag);
+  styloEcrit(false);
+  reculer(moitieLdiag);
+  styloEcrit(false);
+}
+// Baisser et remonter le stylo
+void styloEcrit(bool bas){
+  if(bas) stylo.write(120); 
+  else stylo.write(60);
+  delay(300);
+}
+
+void avancer(float cm){
+  int t = (int)round(cm * temps_par_cm);
+  digitalWrite(DIR1, HIGH); analogWrite(PWM1, vitesse);
+  digitalWrite(DIR2, HIGH); analogWrite(PWM2, vitesse);
+  delay(t);
+  arret();
+}
+
+void reculer(float cm){
+  int t = (int)round(cm * temps_par_cm);
+  digitalWrite(DIR1, LOW); analogWrite(PWM1, vitesse);
+  digitalWrite(DIR2, LOW); analogWrite(PWM2, vitesse);
+  delay(t);
+  arret();
+}
+
+void arret(){
+  analogWrite(PWM1,0); analogWrite(PWM2,0);
+  delay(100);
+}
+
+void lireEncodeurGauche()
+{
+    int G_A_etat_courant = digitalRead(ENCODEUR_G_A);
+
+    if (G_A_etat_courant != G_A_etat_precedent) 
+    {
+        if (digitalRead(ENCODEUR_G_B) == G_A_etat_courant) {  
+            compteur_G--; 
+        } else {
+            compteur_G++; 
+        }
+    }
+    G_A_etat_precedent = G_A_etat_courant;
+}
+
+void lireEncodeurDroite()
+{
+    int D_A_etat_courant = digitalRead(ENCODEUR_D_A);
+
+    if (D_A_etat_courant != D_A_etat_precedent) 
+    {
+        
+        if (digitalRead(ENCODEUR_D_B) == D_A_etat_courant) {
+            compteur_D--; 
+        } else {
+            compteur_D++; 
+        }
+    }
+
+    
+    D_A_etat_precedent = D_A_etat_courant;
+}
+
+void demarrerMoteurGauche(int vitesse) 
+{
+    digitalWrite(MOTEUR_G_IN, LOW);
+    analogWrite(MOTEUR_G_ENA, vitesse);
+}
+
+void demarrerMoteurDroit(int vitesse) 
+{
+    digitalWrite(MOTEUR_D_IN, LOW);
+    analogWrite(MOTEUR_D_ENA, vitesse);
+}
+
+void reculerMoteurGauche(int vitesse) 
+{
+    // Inverse la direction par rapport à demarrerMoteurGauche
+    digitalWrite(MOTEUR_G_IN, HIGH);
+    analogWrite(MOTEUR_G_ENA, vitesse);
+}
+
+void reculerMoteurDroit(int vitesse) 
+{
+    // Inverse la direction par rapport à demarrerMoteurDroit
+    digitalWrite(MOTEUR_D_IN, HIGH);
+    analogWrite(MOTEUR_D_ENA, vitesse);
+}
+
+void arreterMoteurs() 
+{
+    analogWrite(MOTEUR_G_ENA, 0);
+    analogWrite(MOTEUR_D_ENA, 0);
+    digitalWrite(MOTEUR_G_IN, LOW);
+    digitalWrite(MOTEUR_D_IN, LOW);
+}
+
+void deplacerRobotAvant(float toursCibles) 
+{
+    float target_pulses = toursCibles * tick_par_tour;
+    
+    compteur_G = 0;
+    compteur_D = 0; 
+
+    demarrerMoteurGauche(vitesse_moteur);
+    demarrerMoteurDroit(vitesse_moteur);
+
+    while (compteur_G < target_pulses || compteur_D < target_pulses) {
+        
+        
+        delay(10); 
+    }
+    
+    arreterMoteurs();
+}
+
+void deplacerRobotArriere(float toursCibles) 
+{
+    float target_pulses = toursCibles * tick_par_tour;
+    
+    compteur_G = 0;
+    compteur_D = 0; 
+
+    // On utilise les fonctions de recul des moteurs
+    reculerMoteurGauche(vitesse_moteur);
+    reculerMoteurDroit(vitesse_moteur);
+
+    // On utilise fabs() car en reculant, les compteurs vont probablement décrémenter (valeurs négatives)
+    while (fabs(compteur_G) < target_pulses || fabs(compteur_D) < target_pulses) {
+        delay(10); 
+    }
+    
+    arreterMoteurs();
+}
+
+void tournerRobot(float toursCibles) {
+    /*
+    Fait tourner le robot sur place.
+    toursCibles positif : roue gauche avance (+), roue droite recule (-) -> Rotation anti-horaire (à gauche)
+    toursCibles négatif : roue gauche recule (-), roue droite avance (+) -> Rotation horaire (à droite)
+    */
+    
+    float target_pulses = fabs(toursCibles) * tick_par_tour;
+
+    compteur_G = 0;
+    compteur_D = 0; 
+    
+    
+    if (toursCibles >= 0) {
+        
+        reculerMoteurGauche(vitesse_moteur); 
+        demarrerMoteurDroit(vitesse_moteur);   
+    } else {
+        
+        demarrerMoteurGauche(vitesse_moteur);
+        reculerMoteurDroit(vitesse_moteur);
+    }
+
+    
+    while (fabs(compteur_G) < target_pulses || fabs(compteur_D) < target_pulses) {
+
+        Serial.print(compteur_G);
+        Serial.print(" , ");
+        Serial.print(compteur_D);
+        Serial.println();
+ 
+        // Si les deux compteurs ont atteint ou dépassé la cible (en valeur absolue)
+        if (fabs(compteur_G) >= target_pulses && fabs(compteur_D) >= target_pulses) {
+            break; 
+        }
+        
+        delay(10);
+    }
+    
+    arreterMoteurs();
+}
+
+void setup() 
+{
+    Serial.begin(9600);
+
+    pinMode(MOTEUR_G_IN, OUTPUT);
+    pinMode(MOTEUR_G_ENA, OUTPUT);
+    pinMode(MOTEUR_D_IN, OUTPUT);
+    pinMode(MOTEUR_D_ENA, OUTPUT);
+   
+    pinMode(ENCODEUR_G_A, INPUT_PULLUP);
+    pinMode(ENCODEUR_G_B, INPUT_PULLUP);
+    pinMode(ENCODEUR_D_A, INPUT_PULLUP);
+    pinMode(ENCODEUR_D_B, INPUT_PULLUP);
+    
+    attachInterrupt(digitalPinToInterrupt(ENCODEUR_G_A), lireEncodeurGauche, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(ENCODEUR_D_A), lireEncodeurDroite, CHANGE);
+    
+    arreterMoteurs();
+  stylo.attach(PIN_SERVO);
+  stylo.write(60); // stylo levé
+  delay(500);
+}
+
+
+
+void loop() 
+{
+    static bool a_deja_bouge = false; 
+
+    if (!a_deja_bouge) {
+
+        int Meilleur_Coup = meilleurCoup(board);
+        board[Meilleur_Coup] = -1;
+        point CaseCible = coup_vers_case(Meilleur_Coup); 
+        
+        // --- 1. ALLER VERS LA CASE ---
+        float tours_rotation = n_rotation(CaseCible);
+        tournerRobot(tours_rotation);
+        
+        float tours_parcours = n_parcours(CaseCible);
+        deplacerRobotAvant(tours_parcours);
+
+        // --- 2. S'ALIGNER FACE AU TERRAIN ---
+        tournerRobot(-tours_rotation);
+
+        // --- 3. DESSIN ---
+        dessinerCercleBIS(); 
+        
+        stylo.write(60);
+        delay(500);
+
+        // --- 4. RETOUR AU POINT DE DÉPART ---
+        tournerRobot(tours_rotation); 
+
+        deplacerRobotArriere(tours_parcours);
+
+        tournerRobot(-tours_rotation);
+        
+        a_deja_bouge = true;
+    }
+    
+    // Le robot reste immobile en attendant la suite
+    while(true); 
+}
