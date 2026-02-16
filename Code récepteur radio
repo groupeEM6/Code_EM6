@@ -1,0 +1,35 @@
+#include <SPI.h>
+#include <RF24.h>
+
+#define pinCE  7
+#define pinCSN 8
+
+RF24 radio(pinCE, pinCSN);
+
+const byte adresse[6] = "PIPE1";
+char message[32];   // même taille que l'émetteur
+
+void setup() {
+  Serial.begin(9600);
+
+  if (!radio.begin()) {
+    Serial.println("Erreur radio");
+    while (1);
+  }
+
+  radio.setDataRate(RF24_250KBPS);
+  radio.setPALevel(RF24_PA_MIN);
+  radio.openReadingPipe(0, adresse);
+  radio.startListening();
+
+  Serial.println("Recepteur prêt");
+}
+
+void loop() {
+  if (radio.available()) {
+    radio.read(&message, sizeof(message));
+
+    Serial.print("Message reçu : ");
+    Serial.println(message);
+  }
+} 
