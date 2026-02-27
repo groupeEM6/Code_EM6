@@ -1,0 +1,140 @@
+//Implémentation du code minimax sur Arduino B et coup adversaire donné par Arduino A
+//Code Arduino A
+#include <Wire.h>
+
+int slaveAddress = 8;
+
+void setup(){
+    Wire.begin();
+    Serial.begin(9600);
+    Serial.println("Master A prêt : envoyer un coup (0-8)");
+}
+
+void loop(){
+    // Attendre que l'utilisateur entre un chiffre
+    while(Serial.available() == 0){}  
+
+    int coupAdversaire = Serial.parseInt();  // lire le chiffre
+
+    // Vider le buffer pour supprimer le '\n'
+    while(Serial.available() > 0) Serial.read(); 
+
+    // Vérifier que le coup est valide
+    if(coupAdversaire < 0 || coupAdversaire > 8){
+        Serial.println("Coup invalide, essayez 0-8");
+        return;
+    }
+
+    // Envoyer le coup à B
+    Wire.beginTransmission(slaveAddress);
+    Wire.write(coupAdversaire);
+    Wire.endTransmission();
+
+    // Demander le meilleur coup à B
+    Wire.requestFrom(slaveAddress, 1);
+    if(Wire.available()){
+        int coupHome = Wire.read();
+        if(coupHome != 255){
+            Serial.print("B renvoie le meilleur coup : ");
+            Serial.println(coupHome);
+        } else {
+            Serial.println("Plateau plein ou match nul !");
+        }
+    }
+}
+
+----------------------------------------------------------------------------------------------------------------------------------------------
+//Code Arduino B
+#include <Wire.h>
+
+char board[9]; // Plateau : ' ' = vide, 'O' = adversaire, 'X' = Home
+
+// Vérifier gagnant
+char gagnant(char b[9]){
+    const int L[8][3] = {
+        {0,1,2},{3,4,5},{6,7,8},
+        {0,3,6},{1,4,7},{2,5,8},
+        {0,4,8},{2,4,6}
+    };
+    for(int i=0;i<8;i++){
+        int a=L[i][0],c=L[i][1],d=L[i][2];
+        if(b[a]!=' ' && b[a]==b[c] && b[c]==b[d]) return b[a];
+    }
+    return ' ';
+}
+
+bool plein(char b[9]){
+    for(int i=0;i<9;i++) if(b[i]==' ') return false;
+    return true;
+}
+
+// Minimax
+int minimax(char b[9], char joueur){
+    char win = gagnant(b);
+    if(win=='X') return 1;
+    if(win=='O') return -1;
+    if(plein(b)) return 0;
+
+    int meilleur = (joueur=='X') ? -1000 : 1000;
+    for(int i=0;i<9;i++){
+        if(b[i]==' '){
+            b[i]=joueur;
+            int score = minimax(b, (joueur=='X')?'O':'X');
+            b[i]=' ';
+            if(joueur=='X') meilleur = max(meilleur, score);
+            else meilleur = min(meilleur, score);
+        }
+    }
+    return meilleur;
+}
+
+// Calcul meilleur coup
+int meilleurCoup(char b[9]){
+    int meilleurScore=-1000;
+    int coup=-1;
+    for(int i=0;i<9;i++){
+        if(b[i]==' '){
+            b[i]='X';
+            int score = minimax(b,'O');
+            b[i]=' ';
+            if(score>meilleurScore){
+                meilleurScore=score;
+                coup=i;
+            }
+        }
+    }
+    return coup;
+}
+
+// -------------------
+// I2C events
+// -------------------
+void receiveEvent(int howMany){
+    if(Wire.available()){
+        int caseAdversaire = Wire.read();
+        if(caseAdversaire >= 0 && caseAdversaire < 9 && board[caseAdversaire]==' '){
+            board[caseAdversaire]='O'; // Marquer adversaire
+        }
+    }
+}
+
+void requestEvent(){
+    int coupHome = meilleurCoup(board);
+    if(coupHome != -1){
+        board[coupHome]='X';
+        Wire.write(coupHome);
+    } else {
+        Wire.write(255); // plateau plein
+    }
+}
+
+void setup(){
+    Wire.begin(8);                 // Adresse I2C du Slave
+    Wire.onReceive(receiveEvent);  // Configurer réception
+    Wire.onRequest(requestEvent);  // Configurer réponse
+    for(int i=0;i<9;i++) board[i]=' '; // Initialiser plateau
+}
+
+void loop(){
+    // Tout se passe via I2C
+}
