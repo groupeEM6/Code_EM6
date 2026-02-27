@@ -1,0 +1,55 @@
+//Code pour l'Arduino A (communicateur)
+include <Wire.h>
+
+void setup() {
+  Wire.begin();
+  Serial.begin(9600);
+  Serial.println("Master (A) Ready");
+}
+
+void loop() {
+  // Demande un message à B
+  Wire.requestFrom(8, 1);
+  if (Wire.available()) {
+    char response = Wire.read(); // on lit un caractère
+    Serial.print("B dit : ");
+    Serial.println(response);
+  }
+
+  // Envoie un message à B
+  Wire.beginTransmission(8);
+  Wire.write('A');  // par exemple 'A' pour "Salut"
+  Wire.endTransmission();
+
+  delay(2000); // pause
+}
+---------------------------------------------------------------------------------------------------------
+//Code pour l'Arduino B (piloteur)
+#include <Wire.h>
+
+char receivedChar = ' ';
+
+void setup() {
+  Wire.begin(8);
+  Wire.onReceive(receiveEvent);
+  Wire.onRequest(requestEvent);
+
+  Serial.begin(9600);
+  Serial.println("Slave (B) Ready");
+}
+
+void loop() {
+  // rien à faire ici
+}
+
+void receiveEvent(int howMany) {
+  while (Wire.available()) {
+    receivedChar = Wire.read();
+    Serial.print("Reçu de A : ");
+    Serial.println(receivedChar);
+  }
+}
+
+void requestEvent() {
+  Wire.write('B'); // par exemple 'B' pour "Salut"
+}
