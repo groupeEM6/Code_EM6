@@ -66,20 +66,20 @@ int tick_par_tour = 40;
 int vitesse_moteur = 200;
 
 // pins moteur gauche
-int MOTEUR_G_IN = 11;
-int MOTEUR_G_ENA = 10;
-int ENCODEUR_G_A = 4;
-int ENCODEUR_G_B = 5;
+int MOTEUR_G_IN = 8;
+int MOTEUR_G_ENA = 9;
+int ENCODEUR_G_A = 6;
+int ENCODEUR_G_B = 7;
 //comptage encodeur gauche
 volatile float compteur_G = 0;
 
 int G_A_etat_precedent = LOW;
 
 // pins moteur droite
-int MOTEUR_D_IN = 8;
-int MOTEUR_D_ENA = 9;
-int ENCODEUR_D_A = 6;
-int ENCODEUR_D_B = 7;
+int MOTEUR_D_IN = 11;
+int MOTEUR_D_ENA = 10;
+int ENCODEUR_D_A = 4;
+int ENCODEUR_D_B = 5;
 // comptage encodeur droite
 volatile float compteur_D = 0;
 
