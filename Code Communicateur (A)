@@ -2,21 +2,21 @@
 #include <RF24.h>
 #include <Wire.h>
 
-// --- CONFIGURATION NRF24L01 ---
-#define pinCE   A1 //ici faut donner les bons pins
+// --- CONFIGURATION NRF ---
+#define pinCE   A1
 #define pinCSN  A0
+#define tunnel  "PIPE1"
 RF24 radio(pinCE, pinCSN);
-const byte adresse[6] = "00001"; // Doit être la même que l'adversaire
+const byte adresse[6] = tunnel;
 
-// --- CONFIGURATION BLUETOOTH (Serial1 sur Nano Every) ---
+// --- CONFIGURATION BLUETOOTH (Nano Every) ---
 #define bluetooth Serial1 
 
 // --- VARIABLES DE JEU ---
-int board[9] = {0}; // 0=vide, 1=adversaire (X), -1=robot (O)
+int board[9] = {0}; 
 bool robotEnTrainDeJouer = false;
 
-// --- LOGIQUE DU JEU (MINIMAX) ---
-
+// --- LOGIQUE MINIMAX ---
 int gagnant(int b[9]) {
     const int L[8][3] = {{0,1,2},{3,4,5},{6,7,8},{0,3,6},{1,4,7},{2,5,8},{0,4,8},{2,4,6}};
     for (int i = 0; i < 8; i++) {
@@ -64,64 +64,63 @@ int calculerMeilleurCoup() {
 }
 
 void setup() {
-    Serial.begin(9600);      // Console PC
-    bluetooth.begin(9600);   // Bluetooth (Pins 0 et 1)
-    Wire.begin();            // Maître I2C (Pins A4/A5)
+    Serial.begin(9600);
+    bluetooth.begin(9600);
+    Wire.begin(); 
     
-    // Initialisation NRF
-    if (!radio.begin()) {
-        bluetooth.println("Erreur: NRF24 non detecte !");
-    }
+    radio.begin();
     radio.openReadingPipe(1, adresse);
+    radio.openWritingPipe(adresse);
     radio.setPALevel(RF24_PA_MIN);
     radio.startListening(); 
 
-    bluetooth.println("--- SYSTEME PRET : EN ATTENTE DU JOUEUR ---");
+    bluetooth.println("--- SYSTEME PRET ---");
 }
 
 void loop() {
     // 1. ECOUTER L'ADVERSAIRE (NRF)
     if (!robotEnTrainDeJouer && radio.available()) {
-        char msg[32] = "";
-        radio.read(&msg, sizeof(msg));
-        int coupAdversaire = atoi(msg); // Convertit "3" en 3
+        char msgRecu[32] = ""; // Ta variable
+        radio.read(&msgRecu, sizeof(msgRecu));
+        int coupAdversaire = atoi(msgRecu); 
 
         if (coupAdversaire >= 0 && coupAdversaire <= 8 && board[coupAdversaire] == 0) {
             board[coupAdversaire] = 1;
-            bluetooth.print("Adversaire a joue case : "); bluetooth.println(coupAdversaire);
+            bluetooth.print("Adversaire joue : "); bluetooth.println(coupAdversaire);
 
-            // CALCUL DU COUP ROBOT
             int monCoup = calculerMeilleurCoup();
             if (monCoup != -1) {
                 board[monCoup] = -1;
                 
-                // ENVOYER L'ORDRE A L'ARDUINO B (PILOTEUR)
-                Wire.beginTransmission(8); // Adresse de B
+                // ORDRE I2C VERS ARDUINO B
+                Wire.beginTransmission(8);
                 Wire.write(monCoup); 
                 Wire.endTransmission();
                 
-                robotEnTrainDeJouer = true; // On passe en mode "attente du mouvement"
-                bluetooth.print("Robot joue case : "); bluetooth.println(monCoup);
+                robotEnTrainDeJouer = true;
+                bluetooth.print("Robot joue : "); bluetooth.println(monCoup);
             }
         }
     }
 
-    // 2. POLLING (SPAM) : DEMANDER A L'ARDUINO B S'IL A FINI
+    // 2. POLLING ("spam")
     if (robotEnTrainDeJouer) {
         static unsigned long dernierCheck = 0;
-        if (millis() - dernierCheck > 500) { // On demande toutes les 500ms
+        if (millis() - dernierCheck > 500) {
             dernierCheck = millis();
             
-            Wire.requestFrom(8, 1); // Demande 1 octet à B
+            Wire.requestFrom(8, 1); 
             if (Wire.available()) {
                 byte statut = Wire.read();
-                if (statut == 0x01) { // 0x01 signifie "Fini et revenu au depart"
+                if (statut == 0x01) { 
                     robotEnTrainDeJouer = false;
-                    bluetooth.println("Robot a fini son mouvement.");
+                    bluetooth.println("Mouvement termine. Pret pour le tour suivant.");
                     
-                    // Envoyer notre coup à l'adversaire pour qu'il sache qu'on a joué
+                    // Envoyer ton coup à l'adversaire via NRF
                     radio.stopListening();
-                    // On peut envoyer un message ici via radio.write()
+                    char msgEnvoi[32];
+                    itoa(board[calculerMeilleurCoup()], msgEnvoi, 10); 
+                    radio.write(&msgEnvoi, sizeof(msgEnvoi));
                     radio.startListening();
                 }
             }
