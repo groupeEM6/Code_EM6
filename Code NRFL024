@@ -10,7 +10,7 @@ RF24 radio(pinCE, pinCSN);
 const byte adresse[6] = tunnel;
 
 bool role = 1;   // 1 = emetteur  /  0 = recepteur --> est-ce que dans le code de nrf de l'adversaire ici, c'est bool role = 0 ? Mais ducoup faut tjs choisir un role ?
-
+//par ex, si je dois jouer en 1er, je dois reconfigurer à role =1 et si je dois att que l'adversaire en 1er faut mettre role = 0?
 char message[32] = "Hel World !!!";
 
 void setup() {
