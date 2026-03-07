@@ -1,0 +1,185 @@
+#include <Wire.h>
+#include <math.h>
+#include <Servo.h>
+
+// --- ÉTATS I2C ---
+#define REPOS   0x00
+#define FINI    0x01
+#define TRAVAIL 0x02
+
+volatile byte statut = REPOS; 
+int commandeCase = -1; // Reçu via I2C de l'Arduino A
+
+// --- CONFIGURATION ROBOT ---
+struct point { int x; int y; };
+point Case1 = {15, 75}; point Case2 = {45, 75}; point Case3 = {75, 75};
+point Case4 = {15, 45}; point Case5 = {45, 45}; point Case6 = {75, 45};
+point Case7 = {15, 15}; point Case8 = {45, 15}; point Case9 = {75, 15};
+
+float d_roue = 6.5;
+float axe = 16.5;
+point P_0 = {-30, 45};
+int tick_par_tour = 40;
+int vitesse_moteur = 200;
+
+// Pins
+int MOTEUR_G_IN = 8; int MOTEUR_G_ENA = 9;
+int ENCODEUR_G_A = 6; int ENCODEUR_G_B = 7;
+int MOTEUR_D_IN = 11; int MOTEUR_D_ENA = 10;
+int ENCODEUR_D_A = 4; int ENCODEUR_D_B = 5;
+const int PIN_SERVO = 3;
+
+volatile float compteur_G = 0;
+volatile float compteur_D = 0;
+int G_A_etat_precedent = LOW;
+int D_A_etat_precedent = LOW;
+Servo stylo;
+
+// --- FONCTIONS DE CALCUL ---
+float n_rotation(point P) {
+    float theta = atan2((P.y - P_0.y), (P.x - P_0.x));
+    return ((axe / 2) * theta) / (3.14159 * d_roue);
+}
+
+float n_parcours(point P) {
+    float distance = sqrt(pow(P.x - P_0.x, 2) + pow(P.y - P_0.y, 2));
+    return distance / (3.14159 * d_roue);
+}
+
+point coup_vers_case(int coup) {
+    switch(coup) {
+        case 0: return Case1; case 1: return Case2; case 2: return Case3;
+        case 3: return Case4; case 4: return Case5; case 5: return Case6;
+        case 6: return Case7; case 7: return Case8; case 8: return Case9;
+        default: return P_0;
+    }
+}
+
+// --- FONCTIONS MOTEURS & DESSIN ---
+void lireEncodeurGauche() {
+    int s = digitalRead(ENCODEUR_G_A);
+    if (s != G_A_etat_precedent) {
+        if (digitalRead(ENCODEUR_G_B) == s) compteur_G--; else compteur_G++;
+    }
+    G_A_etat_precedent = s;
+}
+
+void lireEncodeurDroite() {
+    int s = digitalRead(ENCODEUR_D_A);
+    if (s != D_A_etat_precedent) {
+        if (digitalRead(ENCODEUR_D_B) == s) compteur_D--; else compteur_D++;
+    }
+    D_A_etat_precedent = s;
+}
+
+void arreterMoteurs() {
+    analogWrite(MOTEUR_G_ENA, 0); analogWrite(MOTEUR_D_ENA, 0);
+}
+
+void tournerRobot(float toursCibles) {
+    float target = fabs(toursCibles) * tick_par_tour;
+    compteur_G = 0; compteur_D = 0;
+    if (toursCibles >= 0) { // Gauche
+        digitalWrite(MOTEUR_G_IN, HIGH); analogWrite(MOTEUR_G_ENA, vitesse_moteur);
+        digitalWrite(MOTEUR_D_IN, LOW); analogWrite(MOTEUR_D_ENA, vitesse_moteur);
+    } else { // Droite
+        digitalWrite(MOTEUR_G_IN, LOW); analogWrite(MOTEUR_G_ENA, vitesse_moteur);
+        digitalWrite(MOTEUR_D_IN, HIGH); analogWrite(MOTEUR_D_ENA, vitesse_moteur);
+    }
+    while (fabs(compteur_G) < target || fabs(compteur_D) < target) delay(1);
+    arreterMoteurs();
+}
+
+void deplacerRobotAvant(float tours) {
+    float target = tours * tick_par_tour;
+    compteur_G = 0; compteur_D = 0;
+    digitalWrite(MOTEUR_G_IN, LOW); analogWrite(MOTEUR_G_ENA, vitesse_moteur);
+    digitalWrite(MOTEUR_D_IN, LOW); analogWrite(MOTEUR_D_ENA, vitesse_moteur);
+    while (compteur_G < target || compteur_D < target) delay(1);
+    arreterMoteurs();
+}
+
+void deplacerRobotArriere(float tours) {
+    float target = tours * tick_par_tour;
+    compteur_G = 0; compteur_D = 0;
+    digitalWrite(MOTEUR_G_IN, HIGH); analogWrite(MOTEUR_G_ENA, vitesse_moteur);
+    digitalWrite(MOTEUR_D_IN, HIGH); analogWrite(MOTEUR_D_ENA, vitesse_moteur);
+    while (fabs(compteur_G) < target || fabs(compteur_D) < target) delay(1);
+    arreterMoteurs();
+}
+
+void dessinerCercleBIS() {
+    float tours_avance = (axe / 2.0) / (3.14159 * d_roue);
+    deplacerRobotAvant(tours_avance);
+    float tours_quart = axe / (4.0 * d_roue);
+    tournerRobot(-tours_quart); // Droite
+    stylo.write(78); delay(300); // Bas
+    
+    // Pivot 360°
+    float tours_cercle = (2.0 * axe) / d_roue;
+    compteur_G = 0;
+    digitalWrite(MOTEUR_G_IN, LOW); analogWrite(MOTEUR_G_ENA, vitesse_moteur);
+    while (fabs(compteur_G) < (tours_cercle * tick_par_tour)) delay(1);
+    arreterMoteurs();
+
+    stylo.write(60); delay(300); // Haut
+    tournerRobot(tours_quart); // Retour alignement
+    deplacerRobotArriere(tours_avance);
+}
+
+// --- SETUP & COMMUNICATION ---
+void setup() {
+    Wire.begin(8);
+    Wire.onReceive(receiveEvent);
+    Wire.onRequest(requestEvent);
+    
+    pinMode(MOTEUR_G_IN, OUTPUT); pinMode(MOTEUR_G_ENA, OUTPUT);
+    pinMode(MOTEUR_D_IN, OUTPUT); pinMode(MOTEUR_D_ENA, OUTPUT);
+    pinMode(ENCODEUR_G_A, INPUT_PULLUP); pinMode(ENCODEUR_G_B, INPUT_PULLUP);
+    pinMode(ENCODEUR_D_A, INPUT_PULLUP); pinMode(ENCODEUR_D_B, INPUT_PULLUP);
+    
+    attachInterrupt(digitalPinToInterrupt(ENCODEUR_G_A), lireEncodeurGauche, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(ENCODEUR_D_A), lireEncodeurDroite, CHANGE);
+    
+    stylo.attach(PIN_SERVO);
+    stylo.write(60);
+    Serial.begin(9600);
+}
+
+void loop() {
+    if (commandeCase != -1) {
+        statut = TRAVAIL;
+        
+        point CaseCible = coup_vers_case(commandeCase);
+        
+        // 1. ALLER VERS LA CASE
+        float t_rot = n_rotation(CaseCible);
+        tournerRobot(t_rot);
+        
+        float t_parc = n_parcours(CaseCible);
+        deplacerRobotAvant(t_parc);
+
+        // 2. S'ALIGNER ET DESSINER
+        tournerRobot(-t_rot);
+        dessinerCercleBIS(); 
+
+        // 3. RETOUR AU POINT DE DÉPART (P_0)
+        tournerRobot(t_rot);
+        deplacerRobotArriere(t_parc);
+        tournerRobot(-t_rot);
+
+        commandeCase = -1; // Fin de l'ordre
+        statut = FINI;     // Signal pour Arduino A
+    }
+}
+
+void receiveEvent(int howMany) {
+    if (Wire.available()) {
+        commandeCase = Wire.read();
+    }
+}
+
+void requestEvent() {
+    Wire.write(statut);
+    if (statut == FINI) statut = REPOS;
+}
