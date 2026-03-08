@@ -1,0 +1,49 @@
+#include <Wire.h>
+
+#define bluetooth Serial1 
+
+bool robotOccupe = false;
+
+void setup() {
+  Serial.begin(9600);     // Console PC pour le debug
+  bluetooth.begin(9600);  // Connexion Smartphone
+  Wire.begin();           // Maître I2C
+  
+  bluetooth.println("--- TEST : ENVOIE UN CHIFFRE (0-8) ---");
+}
+
+void loop() {
+  // 1. LIRE LE COUP DEPUIS LE BLUETOOTH
+  if (!robotOccupe && bluetooth.available()) {
+    int coup = bluetooth.parseInt(); // Lit le chiffre envoyé (ex: "5")
+
+    if (coup >= 0 && coup <= 8) {
+      bluetooth.print("Recu BT : "); bluetooth.println(coup);
+      
+      // 2. ENVOYER L'ORDRE A L'ARDUINO B VIA I2C
+      Wire.beginTransmission(8);
+      Wire.write(coup);
+      Wire.endTransmission();
+      
+      robotOccupe = true;
+      bluetooth.println("Mouvement en cours sur Arduino B...");
+    }
+  }
+
+  // 3. VERIFIER SI B A FINI (POLLING I2C)
+  if (robotOccupe) {
+    static unsigned long chrono = 0;
+    if (millis() - chrono > 500) {
+      chrono = millis();
+      
+      Wire.requestFrom(8, 1);
+      if (Wire.available()) {
+        byte statut = Wire.read();
+        if (statut == 0x01) { // 0x01 = FINI
+          robotOccupe = false;
+          bluetooth.println("B a fini ! Tu peux rejouer.");
+        }
+      }
+    }
+  }
+}
