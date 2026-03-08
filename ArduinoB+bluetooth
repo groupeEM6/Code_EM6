@@ -1,0 +1,165 @@
+#include <Wire.h>
+#include <math.h>
+#include <Servo.h>
+
+// --- ÉTATS POUR L'ARDUINO A ---
+#define REPOS   0x00
+#define FINI    0x01
+#define TRAVAIL 0x02
+
+volatile byte statut = REPOS; 
+int commandeCase = -1; // Variable qui recevra le coup (0-8)
+
+// --- TES VARIABLES DE CONFIGURATION ---
+struct point { int x; int y; };
+point Case1={15,75}, Case2={45,75}, Case3={75,75}, Case4={15,45}, Case5={45,45}, Case6={75,45}, Case7={15,15}, Case8={45,15}, Case9={75,15};
+point P_0 = {-30, 45};
+float d_roue = 6.5, axe = 16.5;
+int tick_par_tour = 40, vitesse_moteur = 200;
+
+// Pins Moteurs & Encodeurs
+int MOTEUR_G_IN = 8, MOTEUR_G_ENA = 9, ENCODEUR_G_A = 6, ENCODEUR_G_B = 7;
+int MOTEUR_D_IN = 11, MOTEUR_D_ENA = 10, ENCODEUR_D_A = 4, ENCODEUR_D_B = 5;
+const int PIN_SERVO = 3;
+Servo stylo;
+
+volatile float compteur_G = 0, compteur_D = 0;
+int G_A_etat_precedent = LOW, D_A_etat_precedent = LOW;
+
+// --- FONCTIONS DE CALCUL & MOUVEMENT ---
+
+float n_rotation(point P) {
+    float theta = atan2((P.y - P_0.y), (P.x - P_0.x));
+    return ((axe / 2.0) * theta) / (3.14159 * d_roue);
+}
+
+float n_parcours(point P) {
+    float dist = sqrt(pow(P.x - P_0.x, 2) + pow(P.y - P_0.y, 2));
+    return dist / (3.14159 * d_roue);
+}
+
+point coup_vers_case(int coup) {
+    switch(coup) {
+        case 0: return Case1; case 1: return Case2; case 2: return Case3;
+        case 3: return Case4; case 4: return Case5; case 5: return Case6;
+        case 6: return Case7; case 7: return Case8; case 8: return Case9;
+        default: return P_0;
+    }
+}
+
+// --- LOGIQUE MOTEURS ---
+
+void lireEncodeurGauche() {
+    int s = digitalRead(ENCODEUR_G_A);
+    if (s != G_A_etat_precedent) {
+        if (digitalRead(ENCODEUR_G_B) == s) compteur_G--; else compteur_G++;
+    }
+    G_A_etat_precedent = s;
+}
+
+void lireEncodeurDroite() {
+    int s = digitalRead(ENCODEUR_D_A);
+    if (s != D_A_etat_precedent) {
+        if (digitalRead(ENCODEUR_D_B) == s) compteur_D--; else compteur_D++;
+    }
+    D_A_etat_precedent = s;
+}
+
+void arreterMoteurs() { analogWrite(MOTEUR_G_ENA, 0); analogWrite(MOTEUR_D_ENA, 0); delay(100); }
+
+void tournerRobot(float tours) {
+    float target = fabs(tours) * tick_par_tour;
+    compteur_G = 0; compteur_D = 0;
+    if (tours >= 0) { // Gauche
+        digitalWrite(MOTEUR_G_IN, HIGH); analogWrite(MOTEUR_G_ENA, vitesse_moteur);
+        digitalWrite(MOTEUR_D_IN, LOW); analogWrite(MOTEUR_D_ENA, vitesse_moteur);
+    } else { // Droite
+        digitalWrite(MOTEUR_G_IN, LOW); analogWrite(MOTEUR_G_ENA, vitesse_moteur);
+        digitalWrite(MOTEUR_D_IN, HIGH); analogWrite(MOTEUR_D_ENA, vitesse_moteur);
+    }
+    while (fabs(compteur_G) < target || fabs(compteur_D) < target) delay(1);
+    arreterMoteurs();
+}
+
+void deplacerRobotAvant(float tours) {
+    float target = tours * tick_par_tour;
+    compteur_G = 0; compteur_D = 0;
+    digitalWrite(MOTEUR_G_IN, LOW); analogWrite(MOTEUR_G_ENA, vitesse_moteur);
+    digitalWrite(MOTEUR_D_IN, LOW); analogWrite(MOTEUR_D_ENA, vitesse_moteur);
+    while (compteur_G < target || compteur_D < target) delay(1);
+    arreterMoteurs();
+}
+
+void deplacerRobotArriere(float tours) {
+    float target = tours * tick_par_tour;
+    compteur_G = 0; compteur_D = 0;
+    digitalWrite(MOTEUR_G_IN, HIGH); analogWrite(MOTEUR_G_ENA, vitesse_moteur);
+    digitalWrite(MOTEUR_D_IN, HIGH); analogWrite(MOTEUR_D_ENA, vitesse_moteur);
+    while (fabs(compteur_G) < target || fabs(compteur_D) < target) delay(1);
+    arreterMoteurs();
+}
+
+void dessinerCercleBIS() {
+    float t_av = (axe/2.0)/(3.14159*d_roue);
+    deplacerRobotAvant(t_av);
+    float t_q = axe/(4.0*d_roue);
+    tournerRobot(-t_q);
+    stylo.write(78); delay(300);
+    float t_c = (2.0*axe)/d_roue;
+    compteur_G = 0;
+    digitalWrite(MOTEUR_G_IN, LOW); analogWrite(MOTEUR_G_ENA, vitesse_moteur);
+    while (fabs(compteur_G) < (t_c*tick_par_tour)) delay(1);
+    arreterMoteurs();
+    stylo.write(60); delay(300);
+    tournerRobot(t_q);
+    deplacerRobotArriere(t_av);
+}
+
+// --- SETUP ET I2C ---
+
+void setup() {
+    Serial.begin(9600);
+    Wire.begin(8);                // Adresse esclave 8
+    Wire.onReceive(receiveEvent); // Reception d'ordre
+    Wire.onRequest(requestEvent); // Reponse au "spam" de A
+
+    pinMode(MOTEUR_G_IN, OUTPUT); pinMode(MOTEUR_G_ENA, OUTPUT);
+    pinMode(MOTEUR_D_IN, OUTPUT); pinMode(MOTEUR_D_ENA, OUTPUT);
+    pinMode(ENCODEUR_G_A, INPUT_PULLUP); pinMode(ENCODEUR_G_B, INPUT_PULLUP);
+    pinMode(ENCODEUR_D_A, INPUT_PULLUP); pinMode(ENCODEUR_D_B, INPUT_PULLUP);
+    attachInterrupt(digitalPinToInterrupt(ENCODEUR_G_A), lireEncodeurGauche, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(ENCODEUR_D_A), lireEncodeurDroite, CHANGE);
+
+    stylo.attach(PIN_SERVO);
+    stylo.write(60); // Stylo levé
+}
+
+void loop() {
+    if (commandeCase != -1) {
+        statut = TRAVAIL;
+        Serial.print("Mouvement vers case : "); Serial.println(commandeCase);
+
+        point cible = coup_vers_case(commandeCase);
+        float rot = n_rotation(cible);
+        float dist = n_parcours(cible);
+
+        // SEQUENCE COMPLETE
+        tournerRobot(rot);
+        deplacerRobotAvant(dist);
+        tournerRobot(-rot); // S'aligner face au jeu
+        
+        dessinerCercleBIS();
+
+        // RETOUR AU POINT ZERO (P_0)
+        tournerRobot(rot);
+        deplacerRobotArriere(dist);
+        tournerRobot(-rot);
+
+        commandeCase = -1; 
+        statut = FINI; 
+        Serial.println("Retour P0 fini.");
+    }
+}
+
+void receiveEvent(int howMany) { if (Wire.available()) commandeCase = Wire.read(); }
+void requestEvent() { Wire.write(statut); if (statut == FINI) statut = REPOS; }
