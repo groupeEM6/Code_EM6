@@ -2,8 +2,8 @@
 #include <SPI.h>
 #include <RF24.h>
 
-#define pinCE   A1
-#define pinCSN  A0
+#define pinCE   9
+#define pinCSN  10
 #define tunnel  "PIPE1"
 
 RF24 radio(pinCE, pinCSN);
