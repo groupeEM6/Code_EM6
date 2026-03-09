@@ -2,12 +2,17 @@
 #include <RF24.h>
 #include <Wire.h>
 
-// --- CONFIGURATION NRF ---
+// --- CONFIGURATION NRF (Ta structure) ---
 #define pinCE   A1
 #define pinCSN  A0
 #define tunnel  "PIPE1"
 RF24 radio(pinCE, pinCSN);
 const byte adresse[6] = tunnel;
+
+// --- CHOIX DU RÔLE ---
+// 1 = Tu commences (Emetteur)
+// 0 = L'adversaire commence (Recepteur)
+bool role = 1; 
 
 // --- CONFIGURATION BLUETOOTH ---
 #define bluetooth Serial1 
@@ -19,7 +24,7 @@ const byte adresse[6] = tunnel;
 // --- VARIABLES DE JEU ---
 int board[9] = {0}; 
 bool robotEnTrainDeJouer = false;
-int dernierCoupRobot = -1; // Pour s'en souvenir et l'envoyer à la fin
+int dernierCoupRobot = -1;
 
 // --- LOGIQUE MINIMAX ---
 int gagnant(int b[9]) {
@@ -37,7 +42,6 @@ int minimax(int b[9], int joueur) {
     bool plein = true;
     for(int i=0; i<9; i++) if(b[i]==0) plein = false;
     if(plein) return 0;
-
     int meilleur = (joueur == -1 ? -1000 : 1000);
     for (int i = 0; i < 9; i++) {
         if (b[i] == 0) {
@@ -52,88 +56,98 @@ int minimax(int b[9], int joueur) {
 }
 
 int calculerMeilleurCoup() {
-    int meilleurScore = -1000;
-    int coup = -1;
+    int meilleurScore = -1000, coup = -1;
     for (int i = 0; i < 9; i++) {
         if (board[i] == 0) {
             board[i] = -1;
             int score = minimax(board, 1);
             board[i] = 0;
-            if (score > meilleurScore) {
-                meilleurScore = score;
-                coup = i;
-            }
+            if (score > meilleurScore) { meilleurScore = score; coup = i; }
         }
     }
     return coup;
 }
 
 void setup() {
-    Serial.begin(9600);      
-    bluetooth.begin(9600);   
-    Wire.begin();            
-    
-    if (!radio.begin()) {
-        bluetooth.println("Erreur: NRF24 non detecte !");
-    }
-    radio.setChannel(109);
-    radio.openReadingPipe(1, adresse);
-    radio.openWritingPipe(adresse); // Nécessaire pour répondre
-    radio.setPALevel(RF24_PA_MIN);
-    radio.startListening(); 
+    Serial.begin(9600);
+    bluetooth.begin(9600);
+    Wire.begin(); 
 
-    bluetooth.println("--- SYSTEME PRET : EN ATTENTE DU JOUEUR ---");
+    radio.begin();
+    radio.setChannel(109);
+    radio.setPALevel(RF24_PA_MIN);
+    radio.setRetries(5, 15);
+
+    if (role == 0) {
+        Serial.println("Mode : Recepteur (L'adversaire commence)");
+        radio.openReadingPipe(1, adresse);
+        radio.startListening();
+    } else {
+        Serial.println("Mode : Emetteur (Je commence)");
+        radio.openWritingPipe(adresse);
+        radio.stopListening();
+        
+        // --- JOUER LE PREMIER COUP IMMEDIATEMENT ---
+        dernierCoupRobot = calculerMeilleurCoup();
+        board[dernierCoupRobot] = -1;
+        
+        Wire.beginTransmission(8);
+        Wire.write(dernierCoupRobot);
+        Wire.endTransmission();
+        
+        robotEnTrainDeJouer = true;
+        Serial.print("Premier coup joue : "); Serial.println(dernierCoupRobot);
+    }
 }
 
 void loop() {
-    // 1. ÉCOUTER L'ADVERSAIRE (NRF24)
-    if (!robotEnTrainDeJouer && radio.available()) {
-        char msgRecu[32] = "";
-        radio.read(&msgRecu, sizeof(msgRecu));
-        int coupAdversaire = atoi(msgRecu); 
+    // --- CAS 0 : ATTENDRE LE COUP DE L'ADVERSAIRE ---
+    if (role == 0 && !robotEnTrainDeJouer) {
+        if (radio.available()) {
+            char msg[32] = "";
+            radio.read(&msg, sizeof(msg));
+            int coupAdversaire = atoi(msg);
 
-        if (coupAdversaire >= 0 && coupAdversaire <= 8 && board[coupAdversaire] == 0) {
-            board[coupAdversaire] = 1;
-            bluetooth.print("Adversaire joue case : "); bluetooth.println(coupAdversaire);
+            if (coupAdversaire >= 0 && coupAdversaire <= 8 && board[coupAdversaire] == 0) {
+                board[coupAdversaire] = 1;
+                Serial.print("Adversaire a joue : "); Serial.println(coupAdversaire);
 
-            // CALCUL DU COUP DU ROBOT
-            dernierCoupRobot = calculerMeilleurCoup();
-            if (dernierCoupRobot != -1) {
-                board[dernierCoupRobot] = -1;
-                
-                // ENVOI DE L'ORDRE À L'ARDUINO B
-                Wire.beginTransmission(8);
-                Wire.write(dernierCoupRobot); 
-                Wire.endTransmission();
-                
-                robotEnTrainDeJouer = true; 
-                bluetooth.print("Robot dessine case : "); bluetooth.println(dernierCoupRobot);
+                dernierCoupRobot = calculerMeilleurCoup();
+                if (dernierCoupRobot != -1) {
+                    board[dernierCoupRobot] = -1;
+                    Wire.beginTransmission(8);
+                    Wire.write(dernierCoupRobot);
+                    Wire.endTransmission();
+                    robotEnTrainDeJouer = true;
+                    // On bascule temporairement en emetteur pour répondre plus tard
+                    radio.stopListening();
+                    radio.openWritingPipe(adresse);
+                    role = 1; 
+                }
             }
         }
     }
 
-    // 2. SURVEILLANCE DU MOUVEMENT (I2C) ET RÉPONSE RADIO
+    // --- SURVEILLANCE I2C ET ENVOI DU COUP ---
     if (robotEnTrainDeJouer) {
-        static unsigned long dernierCheck = 0;
-        if (millis() - dernierCheck > 500) { 
-            dernierCheck = millis();
-            
-            Wire.requestFrom(8, 1); 
+        static unsigned long lastCheck = 0;
+        if (millis() - lastCheck > 500) {
+            lastCheck = millis();
+            Wire.requestFrom(8, 1);
             if (Wire.available()) {
-                byte statut = Wire.read();
-                if (statut == FINI) { 
-                    
-                    // --- ENVOI DU COUP À L'ADVERSAIRE PAR NRF ---
-                    radio.stopListening(); // On bascule en mode émetteur
-                    char msgEnvoi[32];
-                    itoa(dernierCoupRobot, msgEnvoi, 10);
-                    radio.write(&msgEnvoi, sizeof(msgEnvoi));
-                    radio.startListening(); // On repasse en mode écoute
-                    // --------------------------------------------
-
+                if (Wire.read() == FINI) {
                     robotEnTrainDeJouer = false;
-                    bluetooth.print("Coup "); bluetooth.print(dernierCoupRobot);
-                    bluetooth.println(" envoye à l'adversaire. Tour fini.");
+                    
+                    // Envoi du coup par NRF
+                    char msg[32];
+                    itoa(dernierCoupRobot, msg, 10);
+                    radio.write(&msg, sizeof(msg));
+                    Serial.println("Coup envoye à l'adversaire.");
+
+                    // Après avoir envoyé, on redevient récepteur pour attendre l'autre
+                    radio.openReadingPipe(1, adresse);
+                    radio.startListening();
+                    role = 0; 
                 }
             }
         }
