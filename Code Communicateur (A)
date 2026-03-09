@@ -3,8 +3,8 @@
 #include <Wire.h>
 
 // --- CONFIGURATION NRF (Ta structure) ---
-#define pinCE   A1
-#define pinCSN  A0
+#define pinCE   9
+#define pinCSN  10
 #define tunnel  "PIPE1"
 RF24 radio(pinCE, pinCSN);
 const byte adresse[6] = tunnel;
