@@ -25,7 +25,7 @@ point Case9 = {75, 15};
 
 float d_roue = 6.5;
 
-float axe = 16.5;
+float axe = 22;
 
 // Coordonnées initiales du proto
 
