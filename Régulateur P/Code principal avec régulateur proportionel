@@ -376,7 +376,7 @@ void deplacerRobotAvant(float toursCibles)
     {
         long erreur = compteur_G - compteur_D;
 
-        int correction = Kp_ligne * erreur;
+        int correction = Kp_ligne * erreur - 3;
 
         int vitesse_G = vitesse_moteur - correction;
         int vitesse_D = vitesse_moteur + correction;
@@ -409,7 +409,7 @@ void deplacerRobotArriere(float toursCibles)
     {
         long erreur = compteur_G - compteur_D;
 
-        int correction = Kp_ligne * erreur;
+        int correction = Kp_ligne * erreur - 3;
 
         int vitesse_G = vitesse_moteur - correction;
         int vitesse_D = vitesse_moteur + correction;
