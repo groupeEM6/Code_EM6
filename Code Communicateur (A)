@@ -80,7 +80,7 @@ void setup() {
 
     if (role == 0) {
         Serial.println("Mode : Recepteur (L'adversaire commence)");
-        radio.openReadingPipe(1, adresse);
+        radio.openReadingPipe(0, adresse); //changer le 1 en 0 dans cette ligne 
         radio.startListening();
     } else {
         Serial.println("Mode : Emetteur (Je commence)");
@@ -141,8 +141,13 @@ void loop() {
                     // Envoi du coup par NRF
                     char msg[32];
                     itoa(dernierCoupRobot, msg, 10);
-                    radio.write(&msg, sizeof(msg));
-                    Serial.println("Coup envoye à l'adversaire.");
+                    bool succes = radio.write(&message, sizeof(message));
+                    if (succes) {
+                      Serial.println("SUCCES : Le message est bien parti !");
+                      } else {
+                        Serial.println("ECHEC : Le module radio n'a pas pu envoyer.");
+                      }
+                        delay(1000);
 
                     // Après avoir envoyé, on redevient récepteur pour attendre l'autre
                     radio.openReadingPipe(1, adresse);
@@ -153,3 +158,4 @@ void loop() {
         }
     }
 }
+
