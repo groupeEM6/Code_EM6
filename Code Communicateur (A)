@@ -1,129 +1,240 @@
 #include <SPI.h>
 #include <RF24.h>
 #include <Wire.h>
+#include <string.h>
 
-// --- CONFIGURATION NRF (Ta structure) ---
+// --- CONFIGURATION NRF ---
 #define pinCE   9
 #define pinCSN  10
-#define tunnel  "PIPE1"
 RF24 radio(pinCE, pinCSN);
-const byte adresse[6] = tunnel;
+const byte adresse[6] = "PIPE1";
 
 // --- CHOIX DU RÔLE ---
 // 1 = Tu commences (Emetteur)
 // 0 = L'adversaire commence (Recepteur)
-bool role = 1; 
+bool role = 1;
 
 // --- CONFIGURATION BLUETOOTH ---
-#define bluetooth Serial1 
+#define bluetooth Serial1
 
 // --- ÉTATS I2C ---
 #define FINI    0x01
 #define TRAVAIL 0x02
 
 // --- VARIABLES DE JEU ---
-int board[9] = {0}; 
+int board[9] = {0};
 bool robotEnTrainDeJouer = false;
 int dernierCoupRobot = -1;
 
-// --- LOGIQUE MINIMAX ---
+// ----------------------
+// LOGIQUE MINIMAX
+// ----------------------
 int gagnant(int b[9]) {
-    const int L[8][3] = {{0,1,2},{3,4,5},{6,7,8},{0,3,6},{1,4,7},{2,5,8},{0,4,8},{2,4,6}};
+    const int L[8][3] = {
+        {0,1,2}, {3,4,5}, {6,7,8},
+        {0,3,6}, {1,4,7}, {2,5,8},
+        {0,4,8}, {2,4,6}
+    };
+
     for (int i = 0; i < 8; i++) {
-        if (b[L[i][0]] != 0 && b[L[i][0]] == b[L[i][1]] && b[L[i][1]] == b[L[i][2]]) return b[L[i][0]];
+        if (b[L[i][0]] != 0 &&
+            b[L[i][0]] == b[L[i][1]] &&
+            b[L[i][1]] == b[L[i][2]]) {
+            return b[L[i][0]];
+        }
     }
     return 0;
 }
 
 int minimax(int b[9], int joueur) {
     int win = gagnant(b);
+
     if (win == -1) return 1;
     if (win == 1) return -1;
+
     bool plein = true;
-    for(int i=0; i<9; i++) if(b[i]==0) plein = false;
-    if(plein) return 0;
-    int meilleur = (joueur == -1 ? -1000 : 1000);
+    for (int i = 0; i < 9; i++) {
+        if (b[i] == 0) {
+            plein = false;
+            break;
+        }
+    }
+
+    if (plein) return 0;
+
+    int meilleur = (joueur == -1) ? -1000 : 1000;
+
     for (int i = 0; i < 9; i++) {
         if (b[i] == 0) {
             b[i] = joueur;
             int score = minimax(b, -joueur);
             b[i] = 0;
-            if (joueur == -1) meilleur = max(meilleur, score);
-            else meilleur = min(meilleur, score);
+
+            if (joueur == -1) {
+                meilleur = max(meilleur, score);
+            } else {
+                meilleur = min(meilleur, score);
+            }
         }
     }
+
     return meilleur;
 }
 
 int calculerMeilleurCoup() {
-    int meilleurScore = -1000, coup = -1;
+    int meilleurScore = -1000;
+    int coup = -1;
+
     for (int i = 0; i < 9; i++) {
         if (board[i] == 0) {
             board[i] = -1;
             int score = minimax(board, 1);
             board[i] = 0;
-            if (score > meilleurScore) { meilleurScore = score; coup = i; }
+
+            if (score > meilleurScore) {
+                meilleurScore = score;
+                coup = i;
+            }
         }
     }
+
     return coup;
 }
 
-void setup() {
-    Serial.begin(9600);
-    bluetooth.begin(9600);
-    Wire.begin(); 
+// ----------------------
+// FONCTIONS RADIO
+// ----------------------
+void configRadio() {
+    if (!radio.begin()) {
+        Serial.println("ERREUR : module NRF24 non detecte");
+        while (1);
+    }
 
-    radio.begin();
     radio.setChannel(109);
-    radio.setPALevel(RF24_PA_MIN);
+    radio.setPALevel(RF24_PA_LOW);       // plus fiable que MIN dans beaucoup de cas
+    radio.setDataRate(RF24_250KBPS);     // plus stable
     radio.setRetries(5, 15);
+    radio.openReadingPipe(0, adresse);
+    radio.openWritingPipe(adresse);
+}
 
-    if (role == 0) {
-        Serial.println("Mode : Recepteur (L'adversaire commence)");
-        radio.openReadingPipe(0, adresse); //changer le 1 en 0 dans cette ligne 
-        radio.startListening();
+void passerEnReception() {
+    radio.startListening();
+    delay(5);
+    role = 0;
+    Serial.println("Radio -> mode RECEPTION");
+}
+
+void passerEnEmission() {
+    radio.stopListening();
+    delay(5);
+    role = 1;
+    Serial.println("Radio -> mode EMISSION");
+}
+
+bool envoyerCoupNRF(int coup) {
+    char msg[32];
+    itoa(coup, msg, 10);
+
+    passerEnEmission();
+
+    Serial.print("Tentative envoi : ");
+    Serial.println(msg);
+
+    bool succes = radio.write(msg, strlen(msg) + 1);
+
+    if (succes) {
+        Serial.println("SUCCES : message bien envoye");
+        passerEnReception();
+        return true;
     } else {
-        Serial.println("Mode : Emetteur (Je commence)");
-        radio.openWritingPipe(adresse);
-        radio.stopListening();
-        
-        // --- JOUER LE PREMIER COUP IMMEDIATEMENT ---
-        dernierCoupRobot = calculerMeilleurCoup();
-        board[dernierCoupRobot] = -1;
-        
-        Wire.beginTransmission(8);
-        Wire.write(dernierCoupRobot);
-        Wire.endTransmission();
-        
-        robotEnTrainDeJouer = true;
-        Serial.print("Premier coup joue : "); Serial.println(dernierCoupRobot);
+        Serial.println("ECHEC : envoi radio impossible");
+        // On reste prêt à réessayer en émission, ou on peut repasser en réception selon ta logique
+        passerEnReception();
+        return false;
     }
 }
 
+int recevoirCoupNRF() {
+    if (!radio.available()) {
+        return -1;
+    }
+
+    char msg[32] = "";
+
+    while (radio.available()) {
+        radio.read(msg, sizeof(msg));
+    }
+
+    Serial.print("Message recu : ");
+    Serial.println(msg);
+
+    int coup = atoi(msg);
+    return coup;
+}
+
+// ----------------------
+// SETUP
+// ----------------------
+void setup() {
+    Serial.begin(9600);
+    bluetooth.begin(9600);
+    Wire.begin();
+
+    configRadio();
+
+    if (role == 0) {
+        Serial.println("Mode : Recepteur (l'adversaire commence)");
+        passerEnReception();
+    } else {
+        Serial.println("Mode : Emetteur (je commence)");
+        passerEnEmission();
+
+        // --- JOUER LE PREMIER COUP IMMEDIATEMENT ---
+        dernierCoupRobot = calculerMeilleurCoup();
+
+        if (dernierCoupRobot != -1) {
+            board[dernierCoupRobot] = -1;
+
+            Wire.beginTransmission(8);
+            Wire.write(dernierCoupRobot);
+            Wire.endTransmission();
+
+            robotEnTrainDeJouer = true;
+
+            Serial.print("Premier coup joue par le robot : ");
+            Serial.println(dernierCoupRobot);
+        }
+    }
+}
+
+// ----------------------
+// LOOP
+// ----------------------
 void loop() {
-    // --- CAS 0 : ATTENDRE LE COUP DE L'ADVERSAIRE ---
+    // --- ATTENTE DU COUP ADVERSE ---
     if (role == 0 && !robotEnTrainDeJouer) {
-        if (radio.available()) {
-            char msg[32] = "";
-            radio.read(&msg, sizeof(msg));
-            int coupAdversaire = atoi(msg);
+        int coupAdversaire = recevoirCoupNRF();
 
-            if (coupAdversaire >= 0 && coupAdversaire <= 8 && board[coupAdversaire] == 0) {
-                board[coupAdversaire] = 1;
-                Serial.print("Adversaire a joue : "); Serial.println(coupAdversaire);
+        if (coupAdversaire >= 0 && coupAdversaire <= 8 && board[coupAdversaire] == 0) {
+            board[coupAdversaire] = 1;
 
-                dernierCoupRobot = calculerMeilleurCoup();
-                if (dernierCoupRobot != -1) {
-                    board[dernierCoupRobot] = -1;
-                    Wire.beginTransmission(8);
-                    Wire.write(dernierCoupRobot);
-                    Wire.endTransmission();
-                    robotEnTrainDeJouer = true;
-                    // On bascule temporairement en emetteur pour répondre plus tard
-                    radio.stopListening();
-                    radio.openWritingPipe(adresse);
-                    role = 1; 
-                }
+            Serial.print("Adversaire a joue : ");
+            Serial.println(coupAdversaire);
+
+            dernierCoupRobot = calculerMeilleurCoup();
+
+            if (dernierCoupRobot != -1) {
+                board[dernierCoupRobot] = -1;
+
+                Wire.beginTransmission(8);
+                Wire.write(dernierCoupRobot);
+                Wire.endTransmission();
+
+                robotEnTrainDeJouer = true;
+
+                Serial.print("Le robot prepare le coup : ");
+                Serial.println(dernierCoupRobot);
             }
         }
     }
@@ -131,31 +242,29 @@ void loop() {
     // --- SURVEILLANCE I2C ET ENVOI DU COUP ---
     if (robotEnTrainDeJouer) {
         static unsigned long lastCheck = 0;
+
         if (millis() - lastCheck > 500) {
             lastCheck = millis();
-            Wire.requestFrom(8, 1);
-            if (Wire.available()) {
-                if (Wire.read() == FINI) {
-                    robotEnTrainDeJouer = false;
-                    
-                    // Envoi du coup par NRF
-                    char msg[32];
-                    itoa(dernierCoupRobot, msg, 10);
-                    bool succes = radio.write(&message, sizeof(message));
-                    if (succes) {
-                      Serial.println("SUCCES : Le message est bien parti !");
-                      } else {
-                        Serial.println("ECHEC : Le module radio n'a pas pu envoyer.");
-                      }
-                        delay(1000);
 
-                    // Après avoir envoyé, on redevient récepteur pour attendre l'autre
-                    radio.openReadingPipe(1, adresse);
-                    radio.startListening();
-                    role = 0; 
+            Wire.requestFrom(8, 1);
+
+            if (Wire.available()) {
+                byte etat = Wire.read();
+
+                if (etat == FINI) {
+                    Serial.println("Robot a fini de jouer");
+
+                    bool succes = envoyerCoupNRF(dernierCoupRobot);
+
+                    if (succes) {
+                        robotEnTrainDeJouer = false;
+                    } else {
+                        Serial.println("Le coup n'a pas ete transmis correctement");
+                        // ici tu peux décider de réessayer plus tard
+                        // pour l'instant on garde robotEnTrainDeJouer = true
+                    }
                 }
             }
         }
     }
 }
-
