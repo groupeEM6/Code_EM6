@@ -135,6 +135,7 @@ void passerEnEmission() {
 
 bool envoyerCoupNRF(int coup) {
     char msg[32];
+    coup+=1;
     itoa(coup, msg, 10);
 
     passerEnEmission();
