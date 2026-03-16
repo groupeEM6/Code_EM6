@@ -177,7 +177,7 @@ int recevoirCoupNRF() {
     bluetooth.println(msg);
 
     int coup = atoi(msg);
-    return coup;
+    return 9- coup;
 }
 
 // ----------------------
