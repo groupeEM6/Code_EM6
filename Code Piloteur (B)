@@ -22,6 +22,9 @@ point P_0 = {-30, 45};
 int tick_par_tour = 40;
 int vitesse_moteur = 200;
 
+// régulateur proportinel 
+float Kp_ligne = 1.8; //kp peut être re déterminé
+
 // Pins
 int MOTEUR_G_IN = 8; int MOTEUR_G_ENA = 9;
 int ENCODEUR_G_A = 6; int ENCODEUR_G_B = 7;
@@ -36,14 +39,34 @@ int D_A_etat_precedent = LOW;
 Servo stylo;
 
 // --- FONCTIONS DE CALCUL ---
-float n_rotation(point P) {
-    float theta = atan2((P.y - P_0.y), (P.x - P_0.x));
-    return ((axe / 2) * theta) / (3.14159 * d_roue);
+float n_rotation(point P) 
+{
+    /* calcule nbre de tours à parcourir par roue pour alignement avec trajectoire
+    (n tours pour roue de gauche, -n tours pour roue de droite) */
+
+    float theta = 0;
+
+    if (P.x == Case1.x && P.y == Case1.y) { theta = 0.4324; }
+    if (P.x == Case2.x && P.y == Case2.y) { theta = 0.3059; }
+    if (P.x == Case3.x && P.y == Case3.y) { theta = 0.2355; }
+    if (P.x == Case7.x && P.y == Case7.y) { theta = -0.4324; }
+    if (P.x == Case8.x && P.y == Case8.y) { theta = -0.3059; }
+    if (P.x == Case9.x && P.y == Case9.y) { theta = -0.2355; }
+    
+    float arc_cercle = (axe/2)*theta;
+
+    float n_tours = arc_cercle/(3.14*d_roue);
+
+    return n_tours;
 }
 
-float n_parcours(point P) {
-    float distance = sqrt(pow(P.x - P_0.x, 2) + pow(P.y - P_0.y, 2));
-    return distance / (3.14159 * d_roue);
+float n_parcours(point P)
+{
+
+    float distance = pow(pow(P.x-P_0.x, 2) + pow(P.y-P_0.y, 2) - 25, 0.5);
+    
+    float n_tours = distance/(3.14*d_roue);
+    return n_tours;
 }
 
 point coup_vers_case(int coup) {
@@ -90,21 +113,68 @@ void tournerRobot(float toursCibles) {
     arreterMoteurs();
 }
 
-void deplacerRobotAvant(float tours) {
-    float target = tours * tick_par_tour;
-    compteur_G = 0; compteur_D = 0;
-    digitalWrite(MOTEUR_G_IN, LOW); analogWrite(MOTEUR_G_ENA, vitesse_moteur);
-    digitalWrite(MOTEUR_D_IN, LOW); analogWrite(MOTEUR_D_ENA, vitesse_moteur);
-    while (compteur_G < target || compteur_D < target) delay(1);
+void deplacerRobotAvant(float toursCibles) 
+{
+    float target_pulses = toursCibles * tick_par_tour;
+    
+    compteur_G = 0;
+    compteur_D = 0; 
+
+    while (fabs(compteur_G) < target_pulses || fabs(compteur_D) < target_pulses) 
+    {
+        long erreur = compteur_G - compteur_D;
+
+        int correction = Kp_ligne * erreur - 3;
+
+        int vitesse_G = vitesse_moteur - correction;
+        int vitesse_D = vitesse_moteur + correction;
+
+        vitesse_G = constrain(vitesse_G, 0, 255);
+        vitesse_D = constrain(vitesse_D, 0, 255);
+
+        // Marche avant
+        digitalWrite(MOTEUR_G_IN, LOW);
+        analogWrite(MOTEUR_G_ENA, vitesse_G);
+
+        digitalWrite(MOTEUR_D_IN, LOW);
+        analogWrite(MOTEUR_D_ENA, vitesse_D);
+        
+        
+        delay(10); 
+    }
+    
     arreterMoteurs();
 }
 
-void deplacerRobotArriere(float tours) {
-    float target = tours * tick_par_tour;
-    compteur_G = 0; compteur_D = 0;
-    digitalWrite(MOTEUR_G_IN, HIGH); analogWrite(MOTEUR_G_ENA, vitesse_moteur);
-    digitalWrite(MOTEUR_D_IN, HIGH); analogWrite(MOTEUR_D_ENA, vitesse_moteur);
-    while (fabs(compteur_G) < target || fabs(compteur_D) < target) delay(1);
+void deplacerRobotArriere(float toursCibles) 
+{
+    float target_pulses = toursCibles * tick_par_tour;
+    
+    compteur_G = 0;
+    compteur_D = 0; 
+
+    while (fabs(compteur_G) < target_pulses || fabs(compteur_D) < target_pulses) 
+    {
+        long erreur = compteur_G - compteur_D;
+
+        int correction = Kp_ligne * erreur - 3;
+
+        int vitesse_G = vitesse_moteur - correction;
+        int vitesse_D = vitesse_moteur + correction;
+
+        vitesse_G = constrain(vitesse_G, 0, 255);
+        vitesse_D = constrain(vitesse_D, 0, 255);
+
+        // Marche arrière
+        digitalWrite(MOTEUR_G_IN, HIGH);
+        analogWrite(MOTEUR_G_ENA, vitesse_G);
+
+        digitalWrite(MOTEUR_D_IN, HIGH);
+        analogWrite(MOTEUR_D_ENA, vitesse_D);
+
+        delay(10);
+    }
+    
     arreterMoteurs();
 }
 
