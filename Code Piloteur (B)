@@ -17,10 +17,10 @@ point Case4 = {15, 45}; point Case5 = {45, 45}; point Case6 = {75, 45};
 point Case7 = {15, 15}; point Case8 = {45, 15}; point Case9 = {75, 15};
 
 float d_roue = 6.5;
-float axe = 16.5;
-point P_0 = {-30, 45};
+float axe = 23;
+point P_0 = {-50, 45};
 int tick_par_tour = 40;
-int vitesse_moteur = 200;
+int vitesse_moteur = 100;
 
 // régulateur proportinel 
 float Kp_ligne = 1.8; //kp peut être re déterminé
