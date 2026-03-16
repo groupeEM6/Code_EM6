@@ -4,14 +4,12 @@
 #include <string.h>
 
 // --- CONFIGURATION NRF ---
-#define pinCE   9
+#define pinCE    9
 #define pinCSN  10
 RF24 radio(pinCE, pinCSN);
 const byte adresse[6] = "PIPE1";
 
 // --- CHOIX DU RÔLE ---
-// 1 = Tu commences (Emetteur)
-// 0 = L'adversaire commence (Recepteur)
 bool role = 1;
 
 // --- CONFIGURATION BLUETOOTH ---
@@ -107,12 +105,13 @@ int calculerMeilleurCoup() {
 void configRadio() {
     if (!radio.begin()) {
         Serial.println("ERREUR : module NRF24 non detecte");
+        bluetooth.println("ERREUR : module NRF24 non detecte");
         while (1);
     }
 
     radio.setChannel(109);
-    radio.setPALevel(RF24_PA_LOW);       // plus fiable que MIN dans beaucoup de cas
-    radio.setDataRate(RF24_250KBPS);     // plus stable
+    radio.setPALevel(RF24_PA_LOW);
+    radio.setDataRate(RF24_250KBPS);
     radio.setRetries(5, 15);
     radio.openReadingPipe(0, adresse);
     radio.openWritingPipe(adresse);
@@ -123,6 +122,7 @@ void passerEnReception() {
     delay(5);
     role = 0;
     Serial.println("Radio -> mode RECEPTION");
+    bluetooth.println("Radio -> mode RECEPTION");
 }
 
 void passerEnEmission() {
@@ -130,6 +130,7 @@ void passerEnEmission() {
     delay(5);
     role = 1;
     Serial.println("Radio -> mode EMISSION");
+    bluetooth.println("Radio -> mode EMISSION");
 }
 
 bool envoyerCoupNRF(int coup) {
@@ -140,15 +141,19 @@ bool envoyerCoupNRF(int coup) {
 
     Serial.print("Tentative envoi : ");
     Serial.println(msg);
+    bluetooth.print("Tentative envoi : ");
+    bluetooth.println(msg);
 
     bool succes = radio.write(msg, strlen(msg) + 1);
 
     if (succes) {
         Serial.println("SUCCES : message bien envoye");
+        bluetooth.println("SUCCES : message bien envoye");
         passerEnReception();
         return true;
     } else {
         Serial.println("ECHEC : envoi radio impossible");
+        bluetooth.println("ECHEC : envoi radio impossible");
         // On reste prêt à réessayer en émission, ou on peut repasser en réception selon ta logique
         passerEnReception();
         return false;
@@ -168,6 +173,8 @@ int recevoirCoupNRF() {
 
     Serial.print("Message recu : ");
     Serial.println(msg);
+    bluetooth.print("Message recu : ");
+    bluetooth.println(msg);
 
     int coup = atoi(msg);
     return coup;
@@ -185,9 +192,11 @@ void setup() {
 
     if (role == 0) {
         Serial.println("Mode : Recepteur (l'adversaire commence)");
+        bluetooth.println("Mode : Recepteur (l'adversaire commence)");
         passerEnReception();
     } else {
         Serial.println("Mode : Emetteur (je commence)");
+        bluetooth.println("Mode : Emetteur (je commence)");
         passerEnEmission();
 
         // --- JOUER LE PREMIER COUP IMMEDIATEMENT ---
@@ -204,6 +213,8 @@ void setup() {
 
             Serial.print("Premier coup joue par le robot : ");
             Serial.println(dernierCoupRobot);
+            bluetooth.print("Premier coup joue par le robot : ");
+            bluetooth.println(dernierCoupRobot);
         }
     }
 }
@@ -221,6 +232,8 @@ void loop() {
 
             Serial.print("Adversaire a joue : ");
             Serial.println(coupAdversaire);
+            bluetooth.print("Adversaire a joue : ");
+            bluetooth.println(coupAdversaire);
 
             dernierCoupRobot = calculerMeilleurCoup();
 
@@ -235,6 +248,8 @@ void loop() {
 
                 Serial.print("Le robot prepare le coup : ");
                 Serial.println(dernierCoupRobot);
+                bluetooth.print("Le robot prepare le coup : ");
+                bluetooth.println(dernierCoupRobot);
             }
         }
     }
@@ -253,6 +268,7 @@ void loop() {
 
                 if (etat == FINI) {
                     Serial.println("Robot a fini de jouer");
+                    bluetooth.println("Robot a fini de jouer");
 
                     bool succes = envoyerCoupNRF(dernierCoupRobot);
 
@@ -260,6 +276,7 @@ void loop() {
                         robotEnTrainDeJouer = false;
                     } else {
                         Serial.println("Le coup n'a pas ete transmis correctement");
+                        bluetooth.println("Le coup n'a pas ete transmis correctement");
                         // ici tu peux décider de réessayer plus tard
                         // pour l'instant on garde robotEnTrainDeJouer = true
                     }
