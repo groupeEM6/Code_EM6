@@ -1,0 +1,187 @@
+#include <Wire.h>
+#include <string.h>
+
+// --- CONFIGURATION BLUETOOTH ---
+#define bluetooth Serial1 
+
+// --- ÉTATS I2C ---
+#define FINI    0x01
+#define TRAVAIL 0x02
+
+// --- VARIABLES DE JEU ---
+int board[9] = {0};
+bool robotEnTrainDeJouer = false;
+int dernierCoupRobot = -1;
+bool monTour = true; 
+
+// ----------------------
+// LOGIQUE MINIMAX (Inchangée)
+// ----------------------
+int gagnant(int b[9]) {
+    const int L[8][3] = {
+        {0,1,2}, {3,4,5}, {6,7,8},
+        {0,3,6}, {1,4,7}, {2,5,8},
+        {0,4,8}, {2,4,6}
+    };
+    for (int i = 0; i < 8; i++) {
+        if (b[L[i][0]] != 0 && b[L[i][0]] == b[L[i][1]] && b[L[i][1]] == b[L[i][2]]) {
+            return b[L[i][0]];
+        }
+    }
+    return 0;
+}
+
+int minimax(int b[9], int joueur) {
+    int win = gagnant(b);
+    if (win == -1) return 1;
+    if (win == 1) return -1;
+    bool plein = true;
+    for (int i = 0; i < 9; i++) { if (b[i] == 0) { plein = false; break; } }
+    if (plein) return 0;
+    int meilleur = (joueur == -1) ? -1000 : 1000;
+    for (int i = 0; i < 9; i++) {
+        if (b[i] == 0) {
+            b[i] = joueur;
+            int score = minimax(b, -joueur);
+            b[i] = 0;
+            if (joueur == -1) meilleur = max(meilleur, score);
+            else meilleur = min(meilleur, score);
+        }
+    }
+    return meilleur;
+}
+
+int calculerMeilleurCoup() {
+    int meilleurScore = -1000;
+    int coup = -1;
+    for (int i = 0; i < 9; i++) {
+        if (board[i] == 0) {
+            board[i] = -1;
+            int score = minimax(board, 1);
+            board[i] = 0;
+            if (score > meilleurScore) {
+                meilleurScore = score;
+                coup = i;
+            }
+        }
+    }
+    return coup;
+}
+
+// ----------------------
+// FONCTIONS BLUETOOTH
+// ----------------------
+
+void envoyerCoupBluetooth(int coup) {
+    int coupAEnvoyer = coup + 1;
+    bluetooth.print("Robot a joue en case : ");
+    bluetooth.println(coupAEnvoyer);
+}
+
+int recevoirCoupBluetooth() {
+    if (bluetooth.available() > 0) {
+        String msg = bluetooth.readStringUntil('\n');
+        msg.trim();
+        
+        if (msg.length() > 0) {
+            int coupRecu = msg.toInt();
+            // Validation simple du coup
+            if (coupRecu < 1 || coupRecu > 9) {
+                bluetooth.println("Erreur : Entrez un chiffre entre 1 et 9.");
+                return -1;
+            }
+            return 9 - coupRecu; 
+        }
+    }
+    return -1;
+}
+
+// ----------------------
+// SETUP
+// ----------------------
+void setup() {
+    Serial.begin(9600);
+    bluetooth.begin(38400); 
+    Wire.begin();
+
+    delay(1000); // Laisser le temps au module de s'initialiser
+    bluetooth.println("--- Morpion Robotise Pret ---");
+    bluetooth.println("Le robot commence la partie.");
+
+    // --- LE ROBOT JOUE LE PREMIER COUP ---
+    monTour = true; 
+    dernierCoupRobot = calculerMeilleurCoup();
+    if (dernierCoupRobot != -1) {
+        board[dernierCoupRobot] = -1;
+        Wire.beginTransmission(8);
+        Wire.write(dernierCoupRobot);
+        Wire.endTransmission();
+        robotEnTrainDeJouer = true;
+    }
+}
+
+// ----------------------
+// LOOP
+// ----------------------
+void loop() {
+    // --- 1. ATTENTE DU COUP HUMAIN ---
+    if (!monTour && !robotEnTrainDeJouer) {
+        // On affiche l'invite de commande une seule fois
+        static bool inviteAffichee = false;
+        if (!inviteAffichee) {
+            bluetooth.println("A vous de jouer ! Envoyez un chiffre (1-9) :");
+            inviteAffichee = true;
+        }
+
+        int coupAdversaire = recevoirCoupBluetooth();
+
+        if (coupAdversaire >= 0 && coupAdversaire <= 8) {
+            if (board[coupAdversaire] == 0) {
+                board[coupAdversaire] = 1;
+                bluetooth.print("Vous avez joue en case : ");
+                bluetooth.println(9 - coupAdversaire);
+                
+                inviteAffichee = false; // Reset pour le prochain tour
+
+                // Le robot calcule sa réponse
+                dernierCoupRobot = calculerMeilleurCoup();
+                if (dernierCoupRobot != -1) {
+                    board[dernierCoupRobot] = -1;
+                    Wire.beginTransmission(8);
+                    Wire.write(dernierCoupRobot);
+                    Wire.endTransmission();
+                    robotEnTrainDeJouer = true;
+                    monTour = true; 
+                } else {
+                    bluetooth.println("Match nul !");
+                }
+            } else {
+                bluetooth.println("Case deja occupee ! Reessayez.");
+            }
+        }
+    }
+
+    // --- 2. SURVEILLANCE DU MOUVEMENT PHYSIQUE ---
+    if (robotEnTrainDeJouer) {
+        static unsigned long lastCheck = 0;
+        if (millis() - lastCheck > 500) {
+            lastCheck = millis();
+
+            Wire.requestFrom(8, 1);
+            if (Wire.available()) {
+                byte etat = Wire.read();
+                if (etat == FINI) {
+                    envoyerCoupBluetooth(dernierCoupRobot);
+                    
+                    // Vérifier si le robot a gagné
+                    if (gagnant(board) == -1) {
+                        bluetooth.println("Le robot a gagne !");
+                    } else {
+                        robotEnTrainDeJouer = false;
+                        monTour = false; // On redonne la main à l'humain
+                    }
+                }
+            }
+        }
+    }
+}
