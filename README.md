@@ -1,0 +1,1 @@
+Dans le cadre du projet d'électromécanique, le groupe EM6, avont décidé de mettre tout nos codes sur GitHub pour non seulement pour partager nos codes au sein du groupe mais pour facililer la lecture de notre rappport.
