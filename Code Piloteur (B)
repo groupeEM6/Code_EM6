@@ -197,6 +197,44 @@ void dessinerCercleBIS() {
     deplacerRobotArriere(tours_avance);
 }
 
+void dessinerCroix() {
+    float tours_huitieme_tour = axe/(8 * d_roue);
+    float tours_quart_tour = axe/(4 * d_roue);
+
+    float tours_diag = 29/(d_roue*3.14);
+
+    //Placer robot pour 1e diagonale
+    tournerRobot(tours_huitieme_tour);
+    deplacerRobotArriere(tours_diag/2);
+    
+    //Dessin 1e diagonale
+    stylo.write(120);
+    delay(300);
+
+    deplacerRobotAvant(tours_diag);
+
+    stylo.write(60);
+    delay(300);
+
+    //Retour centre, placer robot pour 2e diagonale
+    deplacerRobotArriere(tours_diag/2);
+    tournerRobot(-tours_quart_tour);
+    deplacerRobotArriere(tours_diag/2);
+
+    //Dessin 2e diagonale
+    stylo.write(120);
+    delay(300);
+
+    deplacerRobotAvant(tours_diag);
+
+    stylo.write(60);
+    delay(300);
+
+    //Retour centre
+    deplacerRobotArriere(tours_diag/2);
+    tournerRobot(tours_huitieme_tour);
+}
+
 // --- SETUP & COMMUNICATION ---
 void setup() {
     Wire.begin(8);
@@ -232,6 +270,7 @@ void loop() {
         // 2. S'ALIGNER ET DESSINER
         tournerRobot(-t_rot);
         dessinerCercleBIS(); 
+        //dessinerCroix();
 
         // 3. RETOUR AU POINT DE DÉPART (P_0)
         tournerRobot(t_rot);
