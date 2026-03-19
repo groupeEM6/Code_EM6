@@ -1,1 +1,1 @@
-Dans le cadre du projet d'électromécanique, le groupe EM6, avont décidé de mettre tout nos codes sur GitHub pour non seulement pour partager nos codes au sein du groupe mais pour facililer la lecture de notre rappport.
+Dans le cadre de ce projet d’électromécanique, les membres du groupe EM6 ont décidé de centraliser l'ensemble de leurs codes sur GitHub. Cette démarche vise non seulement à faciliter la collaboration au sein de l’équipe, mais également à simplifier la consultation des sources citées dans ce rapport.
