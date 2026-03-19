@@ -1,0 +1,416 @@
+import pygame
+import math
+import time
+import random
+
+from Simulation import theta
+
+pygame.init()
+
+#paramètres de la fenêtre
+
+WIDTH, HEIGHT = 1500, 1000
+color_white = (255,255,255)
+color_black = (0,0,0)
+SCALE = 4
+
+screen = pygame.display.set_mode((WIDTH, HEIGHT),pygame.RESIZABLE)
+pygame.display.set_caption("Robot simulation")
+
+
+
+clock = pygame.time.Clock()
+
+#Formation du terrain de jeu
+def draw_field():
+    rect_form = pygame.Rect(25,25,500,1000)
+    pygame.draw.rect(screen,color_black,rect_form,1)
+    pygame.draw.line(screen,color_black,(25,225),(524,225))
+    pygame.draw.line(screen,color_black,(25,825),(524,825))
+    pygame.draw.rect(screen,color_black,(95,345,360,360),1)
+    pygame.draw.line(screen,color_black,(95,465),(455,465))
+    pygame.draw.line(screen,color_black,(95,585),(455,585))
+    pygame.draw.line(screen,color_black,(215,345),(215,705))
+    pygame.draw.line(screen,color_black,(335,345),(335,705))
+
+
+# Paramètres robot
+L = 23  # distance entre roues
+R = 3.25
+length = 23
+pwm = 150
+vitesse = pwm*0.2103 -9.1588
+
+body_length = length * SCALE
+body_width = L * SCALE
+wheel_width = 30
+wheel_length = 10
+
+# constante de simulation
+
+x, y = 68.75, 206.25+length
+theta = -math.pi/2
+noise = 1
+state = "IDLE"
+draw_mode = "CIRCLE"
+
+target_x = 50
+target_y = 100
+
+start_x = x
+start_y = y
+start_theta = theta
+
+dx = target_x - x
+dy = target_y - y
+distance = math.sqrt(dx**2 +dy**2)
+print("La distance à effectuer est : ",distance)
+
+angle_target = math.atan2(dy,dx)
+print("L'angle calculé est de :", angle_target*180/math.pi,"degré")
+draw_timer =0
+distance_cible = 0
+distance_parcourue = 0
+
+# paramètre encodeur
+N = 40
+ticksL=0.0
+ticksR=0.0
+prev_dSL_meas = 0.0
+prev_dSR_meas = 0.0
+
+# état estimé initial
+x_est = x
+y_est = y
+theta_est = theta
+
+vL = 0
+vR = 0
+running =True
+center_x = 100
+center_y = 100
+
+
+trajectory = []
+pen_down = False
+
+def avancer(distance_cm):
+    global state, distance_cible, distance_parcourue
+
+    distance_cible = distance_cm
+    distance_parcourue = 0
+    state = "FORWARD"
+
+def draw_robot(screen, x, y, theta, color):
+
+
+    robot_surface = pygame.Surface((200, 200),pygame.SRCALPHA)
+
+
+    center_x = 100
+    center_y = 100
+
+    # Corps
+    pygame.draw.rect(robot_surface,(255,0,0),(center_x,center_y-body_width/2,body_width,body_length))
+
+
+    # Roue gauche
+    pygame.draw.rect(
+        robot_surface,
+        (50, 50, 50),
+        (center_x - wheel_width/2, center_y - body_width/2 - wheel_length/2, wheel_width,
+         wheel_length)
+    )
+
+    # Roue droite
+    pygame.draw.rect(
+        robot_surface,
+        (50, 50, 50),
+        (center_x - wheel_width/2,center_y + (body_width / 2) - wheel_length/2, wheel_width,
+         wheel_length)
+    )
+    # Indication avant
+    pygame.draw.circle(robot_surface, (0, 255, 0),
+                       (center_x +16, center_y), 5)
+
+    # Rotation
+    rotated = pygame.transform.rotate(robot_surface, -math.degrees(theta))
+    rect = rotated.get_rect(center=(x, y))
+
+    screen.blit(rotated, rect.topleft)
+
+#Boncle principale
+
+while running:
+    dt = clock.tick(60) / 1000
+
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT :
+            running = False
+
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_SPACE:
+                pen_down = not pen_down
+
+                if pen_down:
+                    trajectory.append(None)  # séparateur de segment
+
+    keys = pygame.key.get_pressed()
+    if event.type == pygame.KEYDOWN:
+        if event.key == pygame.K_1:
+            draw_mode = "CIRCLE"
+            print("Mode cercle")
+
+        if event.key == pygame.K_2:
+            draw_mode = "CROSS"
+            print("Mode croix")
+
+    if keys[pygame.K_g]:
+        state = "ROTATE"
+        distance_cible = math.sqrt((target_x - x) ** 2 + (target_y - y) ** 2)
+        distance_parcourue = 0
+
+    dx = target_x - x
+    dy = target_y - y
+    distance = math.sqrt(dx ** 2 + dy ** 2)
+
+    angle_error = angle_target - theta
+    # normalisation angle [-pi, pi]
+    angle_error = (angle_error + math.pi) % (2 * math.pi) - math.pi
+
+    if state == "ROTATE":
+        if abs(angle_error)>0.01:
+            vL = -50*angle_error
+            vR = 50 * angle_error
+        else:
+            vL = vR = 0
+            state = "FORWARD"
+            print("angle effectué")
+
+
+    # Avancer jusqu'à target
+    elif state == "FORWARD":
+        dS = (dSR_meas + dSL_meas) / 2
+        distance_parcourue += abs(dS)
+
+        if distance_parcourue < distance_cible:
+            vL = vitesse
+            vR = vitesse
+        else:
+            vL = 0
+            vR = 0
+            if draw_mode == "CIRCLE":
+                state = "ALIGN_DRAW"
+            else:
+                state = "DRAW"
+
+    elif state == "ALIGN_DRAW":
+        target_angle = 0  # orientation voulue
+
+        angle_error = target_angle - theta
+        angle_error = (angle_error + math.pi) % (2 * math.pi) - math.pi
+
+        if abs(angle_error) > 0.05:
+            vL = -vitesse
+            vR = 0
+        else:
+            vL = vR = 0
+            state = "DRAW"
+
+    # Traçage
+    elif state == "DRAW":
+
+        # -------- CERCLE --------
+        if draw_mode == "CIRCLE":
+            pen_down = True
+
+            vL = vitesse
+            vR = 0
+
+            draw_timer += dt
+
+            if draw_timer > 6.5:
+                pen_down = False
+                draw_timer = 0
+                state = "RETURN_ROTATE"
+
+        # -------- CROIX --------
+        elif state == "DRAW":
+
+            if draw_mode == "CIRCLE":
+                pen_down = True
+                vL = vitesse
+                vR = 0
+
+                draw_timer += dt
+
+                if draw_timer > 6.5:
+                    pen_down = False
+                    draw_timer = 0
+                    state = "RETURN_ROTATE"
+
+            elif draw_mode == "CROSS":
+
+                L_diag = 20  # longueur diagonale (cm)
+                v = vitesse / 2
+
+                # -------- étape 1 --------
+                if draw_timer == 0:
+                    distance_parcourue = 0
+                    draw_timer = 1
+
+                dS = (dSR_meas + dSL_meas) / 2
+                distance_parcourue += abs(dS)
+
+                pen_down = True
+
+                # diagonale 1
+                if draw_timer == 1:
+                    if distance_parcourue < L_diag:
+                        vL = v
+                        vR = v
+                    else:
+                        distance_parcourue = 0
+                        draw_timer = 2
+
+                # retour centre
+                elif draw_timer == 2:
+                    if distance_parcourue < L_diag / 2:
+                        vL = -v
+                        vR = -v
+                    else:
+                        distance_parcourue = 0
+                        draw_timer = 3
+
+                # rotation 90°
+                # -------- rotation 90° --------
+                elif draw_timer == 3:
+                    target_theta = theta + math.pi / 2  # rotation de 90° par rapport à l'orientation actuelle
+                    # normalisation angle [-pi, pi]
+                    angle_error = (target_theta - theta + math.pi) % (2 * math.pi) - math.pi
+
+                    if abs(angle_error) > 0.05:
+                        vL = -v
+                        vR = v
+                    else:
+                        vL = 0
+                        vR = 0
+                        distance_parcourue = 0
+                        draw_timer = 4  # passer à la diagonale 2
+
+                # diagonale 2
+                elif draw_timer == 4:
+                    if distance_parcourue < L_diag / 2:
+                        vL = v
+                        vR = v
+                    else:
+                        vL = 0
+                        vR = 0
+                        pen_down = False
+                        draw_timer = 0
+                        state = "RETURN_ROTATE"
+    #Rotation vers départ pour le retour
+    elif state == "RETURN_ROTATE":
+        dx = start_x - x
+        dy = start_y - y
+        angle_target = math.atan2(dy, dx)-math.pi
+        angle_error = angle_target - theta
+        angle_error = (angle_error + math.pi) % (2 * math.pi) - math.pi
+
+        if abs(angle_error) > 0.05:
+            vL = vitesse/2
+            vR = -vitesse/2
+        else:
+            vL = vR = 0
+            state = "RETURN_FORWARD"
+            print("rotation vers le départ effecté")
+    #Marche avant jusqu'a la position de départ
+    elif state == "RETURN_FORWARD":
+        distance = math.sqrt((start_x - x) ** 2 + (start_y - y) ** 2) +5
+
+        if distance > 11:
+            vL = -vitesse
+            vR = -vitesse
+        else:
+            vL = vR = 0
+            state = "LAST_ROTATE"
+
+    elif state == "LAST_ROTATE":
+        target_angle = -math.pi/2
+
+        angle_error = target_angle - theta
+        angle_error = (angle_error + math.pi) % (2 * math.pi) - math.pi
+
+        if abs(angle_error) > 0.05:
+            vL = -vitesse/2
+            vR = vitesse/2
+        else:
+            vL = vR = 0
+            state = "DONE"
+
+
+
+    #enregistre la trajectoire si le bic est baissé
+    if pen_down:
+        # calcul du point bic devant le robot
+        bic_x = x_est +4*math.cos(theta_est)
+        bic_y = y_est +4*math.sin(theta_est)
+
+        trajectory.append((bic_x * SCALE, bic_y * SCALE ))
+
+
+
+    # --- VÉRITÉ TERRAIN ---
+    v = (vR + vL) / 2
+    omega = (vR - vL) / L
+
+    x += v * math.cos(theta) * dt
+    y  += v * math.sin(theta) * dt
+    theta  += omega * dt
+
+    # --- DISTANCE REELLE ---
+    dSL_real = vL * dt #* (1+random.uniform(-noise,noise))
+    dSR_real = vR * dt #* (1+random.uniform(-noise,noise))
+
+    # --- CONVERSION EN ROTATION ---
+    dPhiL = dSL_real / R
+    dPhiR = dSR_real / R
+
+    # --- CONVERSION EN TICKS ---
+    ticksL +=(dPhiL / (2 * math.pi))* N
+    ticksR +=(dPhiR / (2 * math.pi)) * N
+
+    # --- DISTANCE MESURÉE PAR ENCODEUR depuis la dernière frame ---
+    dSL_meas = (ticksL / N) * 2 * math.pi * R - prev_dSL_meas
+    dSR_meas = (ticksR / N) * 2 * math.pi * R - prev_dSR_meas
+
+    # Sauvegarde pour la prochaine frame
+    prev_dSL_meas = (ticksL / N) * 2 * math.pi * R
+    prev_dSR_meas = (ticksR / N) * 2 * math.pi * R
+
+    # --- ODOMÉTRIE ---
+    dS = (dSR_meas + dSL_meas) / 2
+    dTheta = (dSR_meas - dSL_meas) / L
+
+    x_est += dS * math.cos(theta_est)
+    y_est += dS * math.sin(theta_est)
+    theta_est += dTheta
+
+
+    #Affichage
+    screen.fill(color_white)
+    draw_field()
+
+    # tracer le trait du bic
+
+
+    draw_robot(screen, x*SCALE, y*SCALE, theta, (0, 150, 255))  # robot réel en bleu
+    draw_robot(screen, x_est*SCALE, y_est*SCALE, theta_est, (255, 50, 50))  # robot estimé en rouge
+
+    for i in range(1, len(trajectory)):
+        if trajectory[i] is not None and trajectory[i - 1] is not None:
+            pygame.draw.line(screen, (0, 0, 0), trajectory[i - 1], trajectory[i], 3)
+
+
+    pygame.display.flip()
+pygame.quit()
