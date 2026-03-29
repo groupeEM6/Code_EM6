@@ -1,0 +1,26 @@
+
+#include <SPI.h>
+#include <RF24.h>
+
+#define pinCE   7           
+#define pinCSN  8           
+#define tunnel  "PIPE1"      
+
+RF24 radio(pinCE, pinCSN);    
+
+const byte adresse[6] = tunnel;              
+const char message[] = "Hello World !!!";    
+
+void setup() {
+  Serial.begin(9600);
+  radio.begin();                      
+  radio.openWritingPipe(adresse);    
+  radio.setPALevel(RF24_PA_MIN);      
+  radio.stopListening();              
+}
+
+void loop() {
+  radio.write(&message, sizeof(message));  
+  Serial.println("Message envoyé : ");  
+  delay(1000);                                
+}
